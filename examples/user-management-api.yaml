@@ -1,0 +1,1120 @@
+openapi: "3.0.3"
+info:
+  title: User Management API
+  description: |
+    API de gestión de usuarios para microservicio empresarial.
+
+    Este microservicio permite:
+    - CRUD de usuarios
+    - Gestión de roles y permisos
+    - Asignación de grupos
+    - Autenticación y autorización via Keycloak
+
+    Integrado con Elasticsearch para búsquedas y Keycloak para IAM.
+  version: "2.0.0"
+  contact:
+    name: Enterprise Security Team
+    email: security@enterprise.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.enterprise.com/v2
+    description: Production server
+  - url: https://api-staging.enterprise.com/v2
+    description: Staging server
+  - url: http://localhost:8080/v2
+    description: Development server
+
+tags:
+  - name: Users
+    description: Operaciones de gestión de usuarios
+  - name: Roles
+    description: Gestión de roles del sistema
+  - name: Groups
+    description: Gestión de grupos de usuarios
+  - name: Permissions
+    description: Control de permisos
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  /users:
+    get:
+      tags:
+        - Users
+      summary: Listar usuarios
+      description: |
+        Obtiene una lista paginada de usuarios con filtros opcionales.
+
+        Soporta búsqueda por nombre, email, rol y grupo.
+        Los resultados pueden ordenarse por múltiples campos.
+      operationId: listUsers
+      parameters:
+        - name: page
+          in: query
+          description: Número de página (0-indexed)
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: size
+          in: query
+          description: Tamaño de página
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: search
+          in: query
+          description: Término de búsqueda (busca en nombre, email, username)
+          schema:
+            type: string
+        - name: role
+          in: query
+          description: Filtrar por rol
+          schema:
+            type: string
+        - name: group
+          in: query
+          description: Filtrar por grupo
+          schema:
+            type: string
+        - name: enabled
+          in: query
+          description: Filtrar por estado
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          description: Campo de ordenamiento
+          schema:
+            type: string
+            enum: [username, email, createdAt, lastLogin]
+            default: username
+        - name: order
+          in: query
+          description: Dirección de ordenamiento
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+      responses:
+        "200":
+          description: Lista de usuarios
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    post:
+      tags:
+        - Users
+      summary: Crear usuario
+      description: |
+        Crea un nuevo usuario en el sistema.
+
+        El usuario se crea en Keycloak y se indexa en Elasticsearch.
+        Se envía email de bienvenida si está configurado.
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Usuario ya existe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /users/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+
+    get:
+      tags:
+        - Users
+      summary: Obtener usuario por ID
+      description: Obtiene los detalles completos de un usuario específico.
+      operationId: getUserById
+      responses:
+        "200":
+          description: Detalles del usuario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags:
+        - Users
+      summary: Actualizar usuario
+      description: Actualiza los datos de un usuario existente.
+      operationId: updateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Usuario actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags:
+        - Users
+      summary: Eliminar usuario
+      description: |
+        Elimina un usuario del sistema.
+
+        El usuario se desactiva en Keycloak y se elimina de Elasticsearch.
+        Esta operación es irreversible.
+      operationId: deleteUser
+      responses:
+        "204":
+          description: Usuario eliminado
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users/{userId}/roles:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+
+    get:
+      tags:
+        - Users
+        - Roles
+      summary: Obtener roles del usuario
+      description: Lista todos los roles asignados a un usuario.
+      operationId: getUserRoles
+      responses:
+        "200":
+          description: Lista de roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags:
+        - Users
+        - Roles
+      summary: Asignar rol a usuario
+      description: Asigna uno o más roles a un usuario.
+      operationId: assignRolesToUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignRolesRequest"
+      responses:
+        "200":
+          description: Roles asignados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags:
+        - Users
+        - Roles
+      summary: Remover rol de usuario
+      description: Remueve uno o más roles de un usuario.
+      operationId: removeRolesFromUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignRolesRequest"
+      responses:
+        "204":
+          description: Roles removidos
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users/{userId}/groups:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+
+    get:
+      tags:
+        - Users
+        - Groups
+      summary: Obtener grupos del usuario
+      description: Lista todos los grupos a los que pertenece un usuario.
+      operationId: getUserGroups
+      responses:
+        "200":
+          description: Lista de grupos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Group"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags:
+        - Users
+        - Groups
+      summary: Agregar usuario a grupo
+      description: Agrega un usuario a uno o más grupos.
+      operationId: addUserToGroups
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GroupAssignmentRequest"
+      responses:
+        "200":
+          description: Usuario agregado a grupos
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users/{userId}/password:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+
+    put:
+      tags:
+        - Users
+      summary: Cambiar contraseña
+      description: |
+        Cambia la contraseña de un usuario.
+
+        Requiere la contraseña actual o permisos de administrador.
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Contraseña cambiada
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags:
+        - Users
+      summary: Resetear contraseña
+      description: |
+        Resetea la contraseña de un usuario y envía email con nueva contraseña temporal.
+
+        Solo disponible para administradores.
+      operationId: resetPassword
+      responses:
+        "200":
+          description: Email de reset enviado
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /roles:
+    get:
+      tags:
+        - Roles
+      summary: Listar roles
+      description: Obtiene todos los roles disponibles en el sistema.
+      operationId: listRoles
+      parameters:
+        - name: search
+          in: query
+          description: Buscar por nombre de rol
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lista de roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      tags:
+        - Roles
+      summary: Crear rol
+      description: Crea un nuevo rol en el sistema.
+      operationId: createRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoleRequest"
+      responses:
+        "201":
+          description: Rol creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Rol ya existe
+
+  /roles/{roleId}:
+    parameters:
+      - name: roleId
+        in: path
+        required: true
+        description: ID del rol
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      tags:
+        - Roles
+      summary: Obtener rol por ID
+      operationId: getRoleById
+      responses:
+        "200":
+          description: Detalles del rol
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags:
+        - Roles
+      summary: Actualizar rol
+      operationId: updateRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoleRequest"
+      responses:
+        "200":
+          description: Rol actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags:
+        - Roles
+      summary: Eliminar rol
+      operationId: deleteRole
+      responses:
+        "204":
+          description: Rol eliminado
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /groups:
+    get:
+      tags:
+        - Groups
+      summary: Listar grupos
+      description: Obtiene todos los grupos del sistema con estructura jerárquica.
+      operationId: listGroups
+      parameters:
+        - name: search
+          in: query
+          description: Buscar por nombre de grupo
+          schema:
+            type: string
+        - name: parentId
+          in: query
+          description: Filtrar por grupo padre
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Lista de grupos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Group"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      tags:
+        - Groups
+      summary: Crear grupo
+      operationId: createGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupRequest"
+      responses:
+        "201":
+          description: Grupo creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /groups/{groupId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        description: ID del grupo
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      tags:
+        - Groups
+      summary: Obtener grupo por ID
+      operationId: getGroupById
+      responses:
+        "200":
+          description: Detalles del grupo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags:
+        - Groups
+      summary: Actualizar grupo
+      operationId: updateGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGroupRequest"
+      responses:
+        "200":
+          description: Grupo actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags:
+        - Groups
+      summary: Eliminar grupo
+      operationId: deleteGroup
+      responses:
+        "204":
+          description: Grupo eliminado
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /groups/{groupId}/members:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      tags:
+        - Groups
+      summary: Listar miembros del grupo
+      operationId: getGroupMembers
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Lista de miembros
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /permissions:
+    get:
+      tags:
+        - Permissions
+      summary: Listar permisos
+      description: Obtiene todos los permisos definidos en el sistema.
+      operationId: listPermissions
+      responses:
+        "200":
+          description: Lista de permisos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+
+  /permissions/check:
+    post:
+      tags:
+        - Permissions
+      summary: Verificar permiso
+      description: Verifica si un usuario tiene un permiso específico sobre un recurso.
+      operationId: checkPermission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PermissionCheckRequest"
+      responses:
+        "200":
+          description: Resultado de verificación
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionCheckResponse"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT de Keycloak
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API Key para servicios internos
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: ID único del usuario (UUID)
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Solicitud inválida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    Unauthorized:
+      description: No autenticado
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    Forbidden:
+      description: Sin permisos
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    NotFound:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    User:
+      type: object
+      description: Representación completa de un usuario
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID único del usuario
+        username:
+          type: string
+          description: Nombre de usuario único
+        email:
+          type: string
+          format: email
+          description: Email del usuario
+        firstName:
+          type: string
+          description: Nombre
+        lastName:
+          type: string
+          description: Apellido
+        enabled:
+          type: boolean
+          description: Si el usuario está activo
+        emailVerified:
+          type: boolean
+          description: Si el email fue verificado
+        createdAt:
+          type: string
+          format: date-time
+          description: Fecha de creación
+        lastLogin:
+          type: string
+          format: date-time
+          description: Último inicio de sesión
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+          description: Atributos personalizados
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+          description: Roles asignados
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/Group"
+          description: Grupos a los que pertenece
+      required:
+        - id
+        - username
+        - email
+
+    UserListResponse:
+      type: object
+      description: Respuesta paginada de usuarios
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        page:
+          type: integer
+          description: Página actual
+        size:
+          type: integer
+          description: Tamaño de página
+        totalElements:
+          type: integer
+          description: Total de elementos
+        totalPages:
+          type: integer
+          description: Total de páginas
+      required:
+        - content
+        - page
+        - size
+        - totalElements
+        - totalPages
+
+    CreateUserRequest:
+      type: object
+      description: Datos para crear un usuario
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: "^[a-zA-Z0-9_.-]+$"
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: Contraseña inicial (opcional, se genera si no se proporciona)
+        enabled:
+          type: boolean
+          default: true
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+        roles:
+          type: array
+          items:
+            type: string
+          description: IDs de roles a asignar
+        groups:
+          type: array
+          items:
+            type: string
+          description: IDs de grupos a asignar
+      required:
+        - username
+        - email
+
+    UpdateUserRequest:
+      type: object
+      description: Datos para actualizar un usuario
+      properties:
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        enabled:
+          type: boolean
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+
+    Role:
+      type: object
+      description: Rol del sistema
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Nombre del rol
+        description:
+          type: string
+          description: Descripción del rol
+        composite:
+          type: boolean
+          description: Si es un rol compuesto
+        clientRole:
+          type: boolean
+          description: Si es un rol de cliente
+        containerId:
+          type: string
+          description: ID del contenedor (realm o cliente)
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Permission"
+      required:
+        - id
+        - name
+
+    CreateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 50
+        description:
+          type: string
+          maxLength: 255
+        permissions:
+          type: array
+          items:
+            type: string
+          description: IDs de permisos a asignar
+      required:
+        - name
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          maxLength: 255
+        permissions:
+          type: array
+          items:
+            type: string
+
+    AssignRolesRequest:
+      type: object
+      properties:
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Lista de IDs de roles
+      required:
+        - roleIds
+
+    Group:
+      type: object
+      description: Grupo de usuarios
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        path:
+          type: string
+          description: Path jerárquico del grupo
+        parentId:
+          type: string
+          format: uuid
+          description: ID del grupo padre
+        subGroups:
+          type: array
+          items:
+            $ref: "#/components/schemas/Group"
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+        memberCount:
+          type: integer
+          description: Número de miembros
+      required:
+        - id
+        - name
+
+    CreateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        parentId:
+          type: string
+          format: uuid
+          description: ID del grupo padre (opcional)
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - name
+
+    UpdateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+
+    GroupAssignmentRequest:
+      type: object
+      properties:
+        groupIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+        - groupIds
+
+    ChangePasswordRequest:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+          format: password
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+      required:
+        - newPassword
+
+    Permission:
+      type: object
+      description: Permiso del sistema
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        resource:
+          type: string
+          description: Recurso al que aplica
+        scope:
+          type: string
+          description: Alcance del permiso (read, write, delete, etc.)
+        description:
+          type: string
+      required:
+        - id
+        - name
+
+    PermissionCheckRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        resource:
+          type: string
+          description: Recurso a verificar
+        scope:
+          type: string
+          description: Acción a verificar
+      required:
+        - userId
+        - resource
+        - scope
+
+    PermissionCheckResponse:
+      type: object
+      properties:
+        allowed:
+          type: boolean
+          description: Si el permiso está permitido
+        reason:
+          type: string
+          description: Razón de la decisión
+        evaluatedPolicies:
+          type: array
+          items:
+            type: string
+      required:
+        - allowed
+
+    Error:
+      type: object
+      description: Respuesta de error estándar
+      properties:
+        code:
+          type: string
+          description: Código de error
+        message:
+          type: string
+          description: Mensaje de error
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+        timestamp:
+          type: string
+          format: date-time
+        traceId:
+          type: string
+          description: ID de traza para debugging
+      required:
+        - code
+        - message

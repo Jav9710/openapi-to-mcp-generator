@@ -1,0 +1,55 @@
+# Configuración batch para generar múltiples servidores MCP
+# Ejemplo de configuración para microservicios empresariales
+
+output_dir: ./output
+
+# Configuración global aplicada a todos los servicios
+global:
+  environment: production
+  log_level: INFO
+  enable_tracing: true
+  correlation_id_header: X-Correlation-ID
+
+# Lista de microservicios a procesar
+services:
+  - name: user_management
+    spec: ./user-management-api.yaml
+    prefix: users
+    base_url: https://api.enterprise.com/v2
+    environment: production
+    auth:
+      type: bearer
+      token_env: USER_API_TOKEN
+
+  # Ejemplo adicional: Servicio de inventario
+  # - name: inventory
+  #   spec: ./inventory-api.yaml
+  #   prefix: inventory
+  #   base_url: https://inventory.enterprise.com/api/v1
+  #   auth:
+  #     type: api_key
+  #     header_name: X-Inventory-Key
+  #     key_env: INVENTORY_API_KEY
+
+  # Ejemplo adicional: Servicio de notificaciones
+  # - name: notifications
+  #   spec: ./notifications-api.yaml
+  #   prefix: notify
+  #   base_url: https://notifications.enterprise.com/api
+  #   auth:
+  #     type: oauth2
+  #     token_url: https://auth.enterprise.com/oauth/token
+  #     client_id_env: NOTIFY_CLIENT_ID
+  #     client_secret_env: NOTIFY_CLIENT_SECRET
+  #     scope: send:notifications
+
+  # Ejemplo adicional: Servicio de reportes
+  # - name: reports
+  #   spec: ./reports-api.yaml
+  #   prefix: reports
+  #   base_url: https://reports.enterprise.com/api/v2
+  #   environment: staging
+  #   auth:
+  #     type: basic
+  #     username_env: REPORTS_USER
+  #     password_env: REPORTS_PASS
