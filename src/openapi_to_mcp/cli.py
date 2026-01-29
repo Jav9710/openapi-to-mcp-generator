@@ -470,7 +470,7 @@ def batch(config_file: str):
 
 
 @cli.command()
-@click.argument("spec_path", type=click.Path(exists=True))
+@click.argument("spec_path", type=click.Path(exists=True), required=False)
 @click.option(
     "--port", "-p",
     type=int,
@@ -488,39 +488,70 @@ def batch(config_file: str):
     default="./output",
     help="Directorio de salida para el servidor generado"
 )
-def gui(spec_path: str, port: int, no_browser: bool, output: str):
+def gui(spec_path: str | None, port: int, no_browser: bool, output: str):
     """
     Abre interfaz gráfica web para seleccionar endpoints.
 
-    SPEC_PATH: Ruta al archivo YAML o JSON de OpenAPI
+    SPEC_PATH: Ruta al archivo YAML o JSON de OpenAPI (opcional)
+
+    Si no se proporciona SPEC_PATH, se abre en modo standalone
+    donde puedes subir archivos o cargar desde URL.
 
     La interfaz permite:
+    - Subir archivos OpenAPI o cargar desde URL
     - Ver todos los endpoints de forma visual
     - Filtrar por tags o búsqueda
     - Seleccionar endpoints arrastrando entre listas
-    - Generar el servidor MCP con la selección
+    - Generar y descargar el servidor MCP como ZIP
     """
-    console.print(Panel.fit(
-        "[bold blue]OpenAPI to MCP Generator - GUI Mode[/bold blue]\n"
-        f"Cargando: {spec_path}",
-        border_style="blue"
-    ))
-
+    # Importar y verificar Flask
     try:
-        # Parsear especificación
-        parser = OpenAPIParser(strict_validation=False)
-        spec = parser.parse(spec_path)
+        from .gui.web_app import run_gui, run_standalone
+    except ImportError:
+        console.print(f"\n[red]Error:[/red] Flask no está instalado.")
+        console.print("Instálalo con: pip install 'openapi-to-mcp[gui]'")
+        sys.exit(1)
 
-        console.print(f"  [green]✓[/green] API: {spec.title} v{spec.version}")
-        console.print(f"  [green]✓[/green] Endpoints: {parser.get_operation_count(spec)}")
+    if spec_path:
+        # Modo con spec pre-cargado
+        console.print(Panel.fit(
+            "[bold blue]OpenAPI to MCP Generator - GUI Mode[/bold blue]\n"
+            f"Cargando: {spec_path}",
+            border_style="blue"
+        ))
 
-        # Importar y lanzar GUI
         try:
-            from .gui.web_app import create_app, run_gui
-        except ImportError as e:
-            console.print(f"\n[red]Error:[/red] Flask no está instalado.")
-            console.print("Instálalo con: pip install flask")
+            # Parsear especificación
+            parser = OpenAPIParser(strict_validation=False)
+            spec = parser.parse(spec_path)
+
+            console.print(f"  [green]✓[/green] API: {spec.title} v{spec.version}")
+            console.print(f"  [green]✓[/green] Endpoints: {parser.get_operation_count(spec)}")
+
+            console.print(f"\n[bold]Iniciando servidor web en http://localhost:{port}[/bold]")
+
+            if not no_browser:
+                console.print("Abriendo navegador...")
+
+            run_gui(
+                spec=spec,
+                spec_path=spec_path,
+                output_dir=output,
+                port=port,
+                open_browser=not no_browser,
+            )
+
+        except OpenAPIParserError as e:
+            console.print(f"\n[red]Error parseando OpenAPI:[/red] {e}")
             sys.exit(1)
+
+    else:
+        # Modo standalone (sin spec)
+        console.print(Panel.fit(
+            "[bold blue]OpenAPI to MCP Generator - Web Mode[/bold blue]\n"
+            "Modo standalone: sube archivos o carga desde URL",
+            border_style="blue"
+        ))
 
         console.print(f"\n[bold]Iniciando servidor web en http://localhost:{port}[/bold]")
 
@@ -528,21 +559,69 @@ def gui(spec_path: str, port: int, no_browser: bool, output: str):
             console.print("Abriendo navegador...")
 
         run_gui(
-            spec=spec,
-            spec_path=spec_path,
+            spec=None,
+            spec_path=None,
             output_dir=output,
             port=port,
             open_browser=not no_browser,
+            standalone=True,
         )
 
-    except OpenAPIParserError as e:
-        console.print(f"\n[red]Error parseando OpenAPI:[/red] {e}")
+
+@cli.command()
+@click.option(
+    "--port", "-p",
+    type=int,
+    default=5000,
+    help="Puerto para el servidor web (default: 5000)"
+)
+@click.option(
+    "--output", "-o",
+    type=click.Path(),
+    default="./output",
+    help="Directorio de salida para servidores generados"
+)
+@click.option(
+    "--no-browser",
+    is_flag=True,
+    help="No abrir el navegador automáticamente"
+)
+def serve(port: int, output: str, no_browser: bool):
+    """
+    Inicia el servidor web en modo standalone.
+
+    En este modo puedes:
+    - Subir archivos OpenAPI desde tu computadora
+    - Cargar especificaciones desde URLs remotas
+    - Seleccionar endpoints visualmente
+    - Generar y descargar servidores MCP como ZIP
+
+    Ideal para desplegar como servicio Docker.
+    """
+    try:
+        from .gui.web_app import run_gui
+    except ImportError:
+        console.print(f"\n[red]Error:[/red] Flask no está instalado.")
+        console.print("Instálalo con: pip install 'openapi-to-mcp[gui]'")
         sys.exit(1)
 
-    except Exception as e:
-        console.print(f"\n[red]Error:[/red] {e}")
-        logger.exception("Error en GUI")
-        sys.exit(1)
+    console.print(Panel.fit(
+        "[bold blue]OpenAPI to MCP Generator - Web Service[/bold blue]\n"
+        "Servidor standalone para generación de MCP",
+        border_style="blue"
+    ))
+
+    console.print(f"\n[bold]Servidor corriendo en http://localhost:{port}[/bold]")
+    console.print("Presiona Ctrl+C para detener\n")
+
+    run_gui(
+        spec=None,
+        spec_path=None,
+        output_dir=output,
+        port=port,
+        open_browser=not no_browser,
+        standalone=True,
+    )
 
 
 def main():

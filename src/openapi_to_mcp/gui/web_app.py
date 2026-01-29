@@ -2,21 +2,36 @@
 Aplicación web Flask para selección visual de endpoints.
 
 Proporciona una interfaz gráfica para:
+- Subir archivos OpenAPI (YAML/JSON)
 - Visualizar endpoints del OpenAPI
 - Seleccionar endpoints con lista dual (source/target)
 - Filtrar por tags y búsqueda
 - Generar servidor MCP con la selección
+- Descargar el servidor generado como ZIP
 """
 
+import io
 import json
 import logging
 import os
+import shutil
+import tempfile
 import threading
+import uuid
 import webbrowser
+import zipfile
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import (
+    Flask,
+    render_template,
+    jsonify,
+    request,
+    send_file,
+    send_from_directory,
+    session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,24 +39,35 @@ logger = logging.getLogger(__name__)
 _current_spec = None
 _current_spec_path = None
 _output_dir = None
+_standalone_mode = False
+
+# Almacenamiento de specs por sesión (para modo standalone)
+_session_specs = {}
 
 
-def create_app(spec, spec_path: str, output_dir: str) -> Flask:
+def create_app(
+    spec=None,
+    spec_path: str = None,
+    output_dir: str = "./output",
+    standalone: bool = False,
+) -> Flask:
     """
     Crea la aplicación Flask.
 
     Args:
-        spec: Especificación OpenAPI parseada
+        spec: Especificación OpenAPI parseada (None para modo standalone)
         spec_path: Ruta al archivo spec
         output_dir: Directorio de salida
+        standalone: Si True, permite subir archivos OpenAPI
 
     Returns:
         Aplicación Flask configurada
     """
-    global _current_spec, _current_spec_path, _output_dir
+    global _current_spec, _current_spec_path, _output_dir, _standalone_mode
     _current_spec = spec
     _current_spec_path = spec_path
     _output_dir = output_dir
+    _standalone_mode = standalone or (spec is None)
 
     # Configurar rutas de templates y static
     template_dir = Path(__file__).parent / "templates"
@@ -54,6 +80,7 @@ def create_app(spec, spec_path: str, output_dir: str) -> Flask:
     )
 
     app.config["SECRET_KEY"] = os.urandom(24)
+    app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
 
     # Registrar rutas
     register_routes(app)
@@ -66,20 +93,247 @@ def register_routes(app: Flask):
 
     @app.route("/")
     def index():
-        """Página principal con la interfaz de selección."""
-        return render_template(
-            "index.html",
-            spec_title=_current_spec.title,
-            spec_version=_current_spec.version,
-            spec_description=_current_spec.description or "",
-        )
+        """Página principal."""
+        if _standalone_mode and _current_spec is None:
+            # Modo standalone sin spec cargado: mostrar página de upload
+            return render_template("upload.html")
+        else:
+            # Modo con spec: mostrar selector de endpoints
+            return render_template(
+                "index.html",
+                spec_title=_current_spec.title,
+                spec_version=_current_spec.version,
+                spec_description=_current_spec.description or "",
+                standalone_mode=_standalone_mode,
+            )
+
+    @app.route("/selector")
+    def selector():
+        """Página de selección de endpoints (para uso después de upload)."""
+        session_id = request.args.get("session")
+
+        if session_id and session_id in _session_specs:
+            spec_data = _session_specs[session_id]
+            return render_template(
+                "index.html",
+                spec_title=spec_data["spec"].title,
+                spec_version=spec_data["spec"].version,
+                spec_description=spec_data["spec"].description or "",
+                standalone_mode=True,
+                session_id=session_id,
+            )
+        elif _current_spec:
+            return render_template(
+                "index.html",
+                spec_title=_current_spec.title,
+                spec_version=_current_spec.version,
+                spec_description=_current_spec.description or "",
+                standalone_mode=_standalone_mode,
+            )
+        else:
+            return render_template("upload.html")
+
+    @app.route("/api/upload", methods=["POST"])
+    def upload_spec():
+        """Sube y parsea un archivo OpenAPI."""
+        from ..parsers.openapi_parser import OpenAPIParser, OpenAPIParserError
+
+        if "file" not in request.files:
+            return jsonify({"success": False, "error": "No se envió archivo"}), 400
+
+        file = request.files["file"]
+
+        if file.filename == "":
+            return jsonify({"success": False, "error": "Nombre de archivo vacío"}), 400
+
+        # Verificar extensión
+        allowed_extensions = {".yaml", ".yml", ".json"}
+        ext = Path(file.filename).suffix.lower()
+        if ext not in allowed_extensions:
+            return jsonify({
+                "success": False,
+                "error": f"Extensión no válida. Usa: {', '.join(allowed_extensions)}"
+            }), 400
+
+        try:
+            # Guardar archivo temporalmente
+            temp_dir = tempfile.mkdtemp()
+            temp_path = Path(temp_dir) / file.filename
+            file.save(str(temp_path))
+
+            # Parsear
+            parser = OpenAPIParser(strict_validation=False)
+            spec = parser.parse(str(temp_path))
+
+            # Generar session ID
+            session_id = str(uuid.uuid4())[:8]
+
+            # Guardar en memoria
+            _session_specs[session_id] = {
+                "spec": spec,
+                "spec_path": str(temp_path),
+                "temp_dir": temp_dir,
+                "filename": file.filename,
+            }
+
+            # Obtener estadísticas
+            from ..endpoint_selector import EndpointSelector
+            selector = EndpointSelector(spec, include_deprecated=True)
+            stats = selector.get_stats()
+
+            return jsonify({
+                "success": True,
+                "session_id": session_id,
+                "spec_info": {
+                    "title": spec.title,
+                    "version": spec.version,
+                    "description": spec.description,
+                    "endpoints_count": stats["total"],
+                    "tags": list(stats["by_tag"].keys()),
+                },
+                "redirect_url": f"/selector?session={session_id}",
+            })
+
+        except OpenAPIParserError as e:
+            return jsonify({
+                "success": False,
+                "error": f"Error parseando OpenAPI: {str(e)}"
+            }), 400
+
+        except Exception as e:
+            logger.exception("Error en upload")
+            return jsonify({
+                "success": False,
+                "error": f"Error procesando archivo: {str(e)}"
+            }), 500
+
+    @app.route("/api/load-url", methods=["POST"])
+    def load_from_url():
+        """Carga y parsea un OpenAPI desde una URL."""
+        import requests
+        from ..parsers.openapi_parser import OpenAPIParser, OpenAPIParserError
+
+        data = request.json
+        url = data.get("url", "").strip()
+
+        if not url:
+            return jsonify({"success": False, "error": "URL no proporcionada"}), 400
+
+        # Validar URL básica
+        if not url.startswith(("http://", "https://")):
+            return jsonify({
+                "success": False,
+                "error": "URL inválida. Debe comenzar con http:// o https://"
+            }), 400
+
+        try:
+            # Descargar contenido
+            headers = {
+                "Accept": "application/json, application/yaml, application/x-yaml, text/yaml, text/plain",
+                "User-Agent": "OpenAPI-to-MCP-Generator/1.0",
+            }
+
+            response = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
+            response.raise_for_status()
+
+            # Determinar tipo de contenido
+            content_type = response.headers.get("Content-Type", "").lower()
+            content = response.text
+
+            # Determinar extensión basada en contenido o URL
+            if "json" in content_type or url.endswith(".json"):
+                ext = ".json"
+            else:
+                ext = ".yaml"
+
+            # Extraer nombre del archivo de la URL
+            url_path = url.split("?")[0]  # Remover query params
+            filename = url_path.split("/")[-1] or "openapi"
+            if not filename.endswith((".yaml", ".yml", ".json")):
+                filename = f"{filename}{ext}"
+
+            # Guardar temporalmente
+            temp_dir = tempfile.mkdtemp()
+            temp_path = Path(temp_dir) / filename
+
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            # Parsear
+            parser = OpenAPIParser(strict_validation=False)
+            spec = parser.parse(str(temp_path))
+
+            # Generar session ID
+            session_id = str(uuid.uuid4())[:8]
+
+            # Guardar en memoria
+            _session_specs[session_id] = {
+                "spec": spec,
+                "spec_path": str(temp_path),
+                "temp_dir": temp_dir,
+                "filename": filename,
+                "source_url": url,
+            }
+
+            # Obtener estadísticas
+            from ..endpoint_selector import EndpointSelector
+            selector = EndpointSelector(spec, include_deprecated=True)
+            stats = selector.get_stats()
+
+            return jsonify({
+                "success": True,
+                "session_id": session_id,
+                "spec_info": {
+                    "title": spec.title,
+                    "version": spec.version,
+                    "description": spec.description,
+                    "endpoints_count": stats["total"],
+                    "tags": list(stats["by_tag"].keys()),
+                },
+                "redirect_url": f"/selector?session={session_id}",
+            })
+
+        except requests.exceptions.Timeout:
+            return jsonify({
+                "success": False,
+                "error": "Timeout: La URL tardó demasiado en responder"
+            }), 400
+
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                "success": False,
+                "error": "Error de conexión: No se pudo conectar a la URL"
+            }), 400
+
+        except requests.exceptions.HTTPError as e:
+            return jsonify({
+                "success": False,
+                "error": f"Error HTTP: {e.response.status_code} - {e.response.reason}"
+            }), 400
+
+        except OpenAPIParserError as e:
+            return jsonify({
+                "success": False,
+                "error": f"Error parseando OpenAPI: {str(e)}"
+            }), 400
+
+        except Exception as e:
+            logger.exception("Error cargando desde URL")
+            return jsonify({
+                "success": False,
+                "error": f"Error procesando URL: {str(e)}"
+            }), 500
 
     @app.route("/api/endpoints")
     def get_endpoints():
         """Retorna lista de endpoints en formato JSON."""
         from ..endpoint_selector import EndpointSelector
 
-        selector = EndpointSelector(_current_spec, include_deprecated=True)
+        spec = _get_current_spec(request)
+        if not spec:
+            return jsonify({"error": "No hay spec cargado"}), 400
+
+        selector = EndpointSelector(spec, include_deprecated=True)
         endpoints = selector.get_all_endpoints()
 
         return jsonify({
@@ -94,16 +348,20 @@ def register_routes(app: Flask):
     @app.route("/api/spec-info")
     def get_spec_info():
         """Retorna información general del spec."""
+        spec = _get_current_spec(request)
+        if not spec:
+            return jsonify({"error": "No hay spec cargado"}), 400
+
         return jsonify({
-            "title": _current_spec.title,
-            "version": _current_spec.version,
-            "description": _current_spec.description,
+            "title": spec.title,
+            "version": spec.version,
+            "description": spec.description,
             "servers": [
                 {"url": s.url, "description": s.description}
-                for s in _current_spec.servers
+                for s in spec.servers
             ],
-            "tags": _current_spec.tags,
-            "security_schemes": list(_current_spec.security_schemes.keys()),
+            "tags": spec.tags,
+            "security_schemes": list(spec.security_schemes.keys()),
         })
 
     @app.route("/api/filter", methods=["POST"])
@@ -111,11 +369,15 @@ def register_routes(app: Flask):
         """Filtra endpoints por patrones."""
         from ..endpoint_selector import EndpointSelector
 
+        spec = _get_current_spec(request)
+        if not spec:
+            return jsonify({"error": "No hay spec cargado"}), 400
+
         data = request.json
         include_patterns = data.get("include", [])
         exclude_patterns = data.get("exclude", [])
 
-        selector = EndpointSelector(_current_spec, include_deprecated=True)
+        selector = EndpointSelector(spec, include_deprecated=True)
         filtered = selector.filter_by_patterns(include_patterns, exclude_patterns)
 
         return jsonify({
@@ -132,13 +394,18 @@ def register_routes(app: Flask):
         from ..transformers.tool_transformer import ToolTransformer
         from ..transformers.resource_transformer import ResourceTransformer
 
+        spec = _get_current_spec(request)
+        if not spec:
+            return jsonify({"success": False, "error": "No hay spec cargado"}), 400
+
         data = request.json
         selected_endpoints = data.get("selected", [])
         service_name = data.get("service_name", "api")
         service_prefix = data.get("service_prefix", service_name)
-        base_url = data.get("base_url") or _current_spec.get_base_url()
+        base_url = data.get("base_url") or spec.get_base_url()
         mcp_framework = data.get("mcp_framework", "fastmcp")
         environment = data.get("environment", "production")
+        download_zip = data.get("download_zip", False)
 
         try:
             # Crear filtro
@@ -154,33 +421,63 @@ def register_routes(app: Flask):
                 environment=environment,
             )
 
+            # Crear directorio temporal para generación
+            if download_zip:
+                temp_output = tempfile.mkdtemp()
+                output_dir = temp_output
+            else:
+                output_dir = _output_dir
+
             # Transformar
             tool_transformer = ToolTransformer(
                 service_prefix=service_prefix,
                 include_deprecated=True,
             )
-            tools = tool_transformer.transform(_current_spec, endpoint_filter=endpoint_filter)
+            tools = tool_transformer.transform(spec, endpoint_filter=endpoint_filter)
 
             resource_transformer = ResourceTransformer(service_prefix=service_prefix)
-            resources = resource_transformer.transform(_current_spec, tools)
+            resources = resource_transformer.transform(spec, tools)
 
             # Generar
-            generator = MCPServerGenerator(output_dir=_output_dir)
+            generator = MCPServerGenerator(output_dir=output_dir)
             result = generator.generate(
-                spec=_current_spec,
+                spec=spec,
                 tools=tools,
                 resources=resources,
                 config=config,
             )
 
-            return jsonify({
-                "success": result.success,
-                "output_path": result.output_path,
-                "tools_count": len(result.tools_generated),
-                "resources_count": len(result.resources_generated),
-                "warnings": result.warnings,
-                "errors": result.errors,
-            })
+            if download_zip and result.success:
+                # Crear ZIP
+                zip_filename = f"mcp_server_{service_name}.zip"
+                zip_id = str(uuid.uuid4())[:8]
+
+                # Guardar referencia para descarga
+                _session_specs[f"zip_{zip_id}"] = {
+                    "output_path": result.output_path,
+                    "temp_dir": temp_output,
+                    "zip_filename": zip_filename,
+                }
+
+                return jsonify({
+                    "success": result.success,
+                    "output_path": result.output_path,
+                    "tools_count": len(result.tools_generated),
+                    "resources_count": len(result.resources_generated),
+                    "warnings": result.warnings,
+                    "errors": result.errors,
+                    "download_url": f"/api/download/{zip_id}",
+                    "zip_filename": zip_filename,
+                })
+            else:
+                return jsonify({
+                    "success": result.success,
+                    "output_path": result.output_path,
+                    "tools_count": len(result.tools_generated),
+                    "resources_count": len(result.resources_generated),
+                    "warnings": result.warnings,
+                    "errors": result.errors,
+                })
 
         except Exception as e:
             logger.exception("Error generando servidor")
@@ -188,6 +485,57 @@ def register_routes(app: Flask):
                 "success": False,
                 "error": str(e),
             }), 500
+
+    @app.route("/api/download/<zip_id>")
+    def download_zip(zip_id: str):
+        """Descarga el servidor generado como ZIP."""
+        key = f"zip_{zip_id}"
+
+        if key not in _session_specs:
+            return jsonify({"error": "Descarga no encontrada o expirada"}), 404
+
+        zip_data = _session_specs[key]
+        output_path = zip_data["output_path"]
+        zip_filename = zip_data["zip_filename"]
+
+        try:
+            # Crear ZIP en memoria
+            memory_file = io.BytesIO()
+
+            with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as zf:
+                base_path = Path(output_path)
+
+                for file_path in base_path.rglob("*"):
+                    if file_path.is_file():
+                        arcname = file_path.relative_to(base_path.parent)
+                        zf.write(file_path, arcname)
+
+            memory_file.seek(0)
+
+            # Limpiar temp dir después de enviar
+            def cleanup():
+                import time
+                time.sleep(5)
+                if key in _session_specs:
+                    temp_dir = _session_specs[key].get("temp_dir")
+                    if temp_dir and Path(temp_dir).exists():
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                    del _session_specs[key]
+
+            thread = threading.Thread(target=cleanup)
+            thread.daemon = True
+            thread.start()
+
+            return send_file(
+                memory_file,
+                mimetype="application/zip",
+                as_attachment=True,
+                download_name=zip_filename,
+            )
+
+        except Exception as e:
+            logger.exception("Error creando ZIP")
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/api/shutdown", methods=["POST"])
     def shutdown():
@@ -198,24 +546,41 @@ def register_routes(app: Flask):
         return jsonify({"status": "shutting_down"})
 
 
+def _get_current_spec(req):
+    """Obtiene el spec actual basado en la sesión o el global."""
+    session_id = req.args.get("session") or (req.json or {}).get("session_id")
+
+    if session_id and session_id in _session_specs:
+        return _session_specs[session_id]["spec"]
+
+    return _current_spec
+
+
 def run_gui(
-    spec,
-    spec_path: str,
-    output_dir: str,
+    spec=None,
+    spec_path: str = None,
+    output_dir: str = "./output",
     port: int = 5000,
     open_browser: bool = True,
+    standalone: bool = False,
 ):
     """
     Inicia la GUI web.
 
     Args:
-        spec: Especificación OpenAPI parseada
+        spec: Especificación OpenAPI parseada (None para modo standalone)
         spec_path: Ruta al archivo spec
         output_dir: Directorio de salida
         port: Puerto del servidor
         open_browser: Si abrir el navegador automáticamente
+        standalone: Si True, permite subir archivos
     """
-    app = create_app(spec, spec_path, output_dir)
+    app = create_app(
+        spec=spec,
+        spec_path=spec_path,
+        output_dir=output_dir,
+        standalone=standalone,
+    )
 
     url = f"http://localhost:{port}"
 
@@ -239,4 +604,22 @@ def run_gui(
         port=port,
         debug=False,
         use_reloader=False,
+    )
+
+
+def run_standalone(port: int = 5000, output_dir: str = "./output"):
+    """
+    Inicia la GUI en modo standalone (sin spec precargado).
+
+    Args:
+        port: Puerto del servidor
+        output_dir: Directorio de salida por defecto
+    """
+    run_gui(
+        spec=None,
+        spec_path=None,
+        output_dir=output_dir,
+        port=port,
+        open_browser=True,
+        standalone=True,
     )

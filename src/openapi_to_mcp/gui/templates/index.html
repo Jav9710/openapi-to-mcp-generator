@@ -10,7 +10,17 @@
     <div class="container">
         <!-- Header -->
         <header class="header">
-            <h1>OpenAPI to MCP Generator</h1>
+            <div class="header-left">
+                {% if standalone_mode %}
+                <a href="/" class="back-link" title="Volver a subir archivo">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </a>
+                {% endif %}
+                <h1>OpenAPI to MCP Generator</h1>
+            </div>
             <div class="spec-info">
                 <span class="spec-title">{{ spec_title }}</span>
                 <span class="spec-version">v{{ spec_version }}</span>
@@ -104,13 +114,28 @@
                         <option value="development">Development</option>
                     </select>
                 </div>
+                <div class="config-field checkbox-field">
+                    <label>
+                        <input type="checkbox" id="downloadZip" checked />
+                        Descargar como ZIP
+                    </label>
+                </div>
             </div>
         </div>
 
         <!-- Footer actions -->
         <div class="footer-actions">
             <button id="cancelBtn" class="btn btn-secondary">Cancelar</button>
-            <button id="generateBtn" class="btn btn-primary">Generar Servidor MCP</button>
+            <button id="generateBtn" class="btn btn-primary">
+                <span class="btn-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                </span>
+                Generar Servidor MCP
+            </button>
         </div>
 
         <!-- Result modal -->
@@ -119,7 +144,15 @@
                 <h2 id="resultTitle">Resultado</h2>
                 <div id="resultBody"></div>
                 <div class="modal-actions">
-                    <button id="closeModal" class="btn btn-primary">Cerrar</button>
+                    <button id="downloadBtn" class="btn btn-primary" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        Descargar ZIP
+                    </button>
+                    <button id="closeModal" class="btn btn-secondary">Cerrar</button>
                 </div>
             </div>
         </div>
@@ -131,6 +164,10 @@
         </div>
     </div>
 
+    <!-- Session ID (if any) -->
+    <script>
+        window.SESSION_ID = "{{ session_id | default('') }}";
+    </script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

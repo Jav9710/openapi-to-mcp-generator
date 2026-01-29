@@ -8,6 +8,10 @@ let endpointsByTags = {};
 let availableEndpoints = [];
 let selectedEndpoints = [];
 let currentView = 'list'; // 'list' or 'tags'
+let currentDownloadUrl = null;
+
+// Get session ID from page (if any)
+const SESSION_ID = window.SESSION_ID || '';
 
 // DOM Elements
 const elements = {
@@ -30,12 +34,14 @@ const elements = {
     resultTitle: document.getElementById('resultTitle'),
     resultBody: document.getElementById('resultBody'),
     closeModal: document.getElementById('closeModal'),
+    downloadBtn: document.getElementById('downloadBtn'),
     loadingOverlay: document.getElementById('loadingOverlay'),
     serviceName: document.getElementById('serviceName'),
     servicePrefix: document.getElementById('servicePrefix'),
     baseUrl: document.getElementById('baseUrl'),
     mcpFramework: document.getElementById('mcpFramework'),
     environment: document.getElementById('environment'),
+    downloadZip: document.getElementById('downloadZip'),
 };
 
 // Initialize
@@ -44,12 +50,23 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 
+// Build API URL with session
+function apiUrl(path) {
+    const separator = path.includes('?') ? '&' : '?';
+    return SESSION_ID ? `${path}${separator}session=${SESSION_ID}` : path;
+}
+
 // Load endpoints from API
 async function loadEndpoints() {
     try {
         showLoading(true);
-        const response = await fetch('/api/endpoints');
+        const response = await fetch(apiUrl('/api/endpoints'));
         const data = await response.json();
+
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
 
         allEndpoints = data.endpoints;
         endpointsByTags = data.by_tags;
@@ -93,11 +110,25 @@ function setupEventListeners() {
 
     // Generate
     elements.generateBtn.addEventListener('click', generateServer);
-    elements.cancelBtn.addEventListener('click', () => window.close());
+    elements.cancelBtn.addEventListener('click', () => {
+        if (SESSION_ID) {
+            window.location.href = '/';
+        } else {
+            window.close();
+        }
+    });
 
     // Modal
     elements.closeModal.addEventListener('click', () => {
         elements.resultModal.style.display = 'none';
+        currentDownloadUrl = null;
+    });
+
+    // Download button
+    elements.downloadBtn.addEventListener('click', () => {
+        if (currentDownloadUrl) {
+            window.location.href = currentDownloadUrl;
+        }
     });
 }
 
@@ -375,6 +406,8 @@ async function generateServer() {
         return;
     }
 
+    const downloadZip = elements.downloadZip.checked;
+
     const config = {
         selected: selectedEndpoints.map(ep => ep.key),
         service_name: elements.serviceName.value || 'api',
@@ -382,6 +415,8 @@ async function generateServer() {
         base_url: elements.baseUrl.value || null,
         mcp_framework: elements.mcpFramework.value,
         environment: elements.environment.value,
+        download_zip: downloadZip,
+        session_id: SESSION_ID || null,
     };
 
     try {
@@ -396,27 +431,43 @@ async function generateServer() {
         const result = await response.json();
 
         if (result.success) {
-            showModal(
-                'Servidor Generado',
-                `<p>El servidor MCP se ha generado correctamente.</p>
-                <p><strong>Ubicación:</strong> <code>${result.output_path}</code></p>
+            let bodyHtml = `
+                <p>El servidor MCP se ha generado correctamente.</p>
                 <p><strong>Tools:</strong> ${result.tools_count}</p>
                 <p><strong>Resources:</strong> ${result.resources_count}</p>
-                ${result.warnings.length > 0
-                    ? `<p><strong>Advertencias:</strong> ${result.warnings.join(', ')}</p>`
-                    : ''}
-                <br>
-                <p><strong>Próximos pasos:</strong></p>
-                <ol>
-                    <li>cd ${result.output_path}</li>
-                    <li>cp .env.example .env</li>
-                    <li>Edita .env con tus credenciales</li>
-                    <li>pip install -r requirements.txt</li>
-                    <li>python -m src.server</li>
-                </ol>`,
-                'success'
-            );
+            `;
+
+            if (result.warnings && result.warnings.length > 0) {
+                bodyHtml += `<p><strong>Advertencias:</strong> ${result.warnings.join(', ')}</p>`;
+            }
+
+            if (result.download_url) {
+                currentDownloadUrl = result.download_url;
+                elements.downloadBtn.style.display = 'inline-flex';
+                bodyHtml += `
+                    <br>
+                    <p><strong>Archivo:</strong> ${result.zip_filename}</p>
+                    <p>Haz clic en "Descargar ZIP" para obtener el servidor generado.</p>
+                `;
+            } else {
+                elements.downloadBtn.style.display = 'none';
+                bodyHtml += `
+                    <p><strong>Ubicación:</strong> <code>${result.output_path}</code></p>
+                    <br>
+                    <p><strong>Próximos pasos:</strong></p>
+                    <ol>
+                        <li>cd ${result.output_path}</li>
+                        <li>cp .env.example .env</li>
+                        <li>Edita .env con tus credenciales</li>
+                        <li>pip install -r requirements.txt</li>
+                        <li>python -m src.server</li>
+                    </ol>
+                `;
+            }
+
+            showModal('Servidor Generado', bodyHtml, 'success');
         } else {
+            elements.downloadBtn.style.display = 'none';
             showModal(
                 'Error',
                 `<p>Error generando el servidor:</p>
@@ -426,6 +477,7 @@ async function generateServer() {
         }
     } catch (error) {
         console.error('Error:', error);
+        elements.downloadBtn.style.display = 'none';
         showModal('Error', `Error de conexión: ${error.message}`, 'error');
     } finally {
         showLoading(false);
