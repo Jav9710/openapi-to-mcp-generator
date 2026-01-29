@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAPI to MCP Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>OpenAPI to MCP Generator</h1>
+            <div class="spec-info">
+                <span class="spec-title">{{ spec_title }}</span>
+                <span class="spec-version">v{{ spec_version }}</span>
+            </div>
+        </header>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="view-toggle">
+                <button id="viewList" class="btn btn-toggle active">Lista</button>
+                <button id="viewTags" class="btn btn-toggle">Por Tags</button>
+            </div>
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="Buscar endpoints..." />
+            </div>
+            <div class="pattern-box">
+                <input type="text" id="patternInput" placeholder="Patrón (ej: /users/*)" />
+                <button id="addPattern" class="btn btn-small">Agregar</button>
+            </div>
+        </div>
+
+        <!-- Main content -->
+        <div class="main-content">
+            <!-- Available endpoints -->
+            <div class="endpoint-panel">
+                <div class="panel-header">
+                    <h2>Endpoints Disponibles</h2>
+                    <span id="availableCount" class="count">0</span>
+                </div>
+                <div id="availableList" class="endpoint-list">
+                    <!-- Endpoints se cargan dinámicamente -->
+                </div>
+                <div class="panel-footer">
+                    <button id="selectAll" class="btn btn-small">Seleccionar todos</button>
+                </div>
+            </div>
+
+            <!-- Transfer buttons -->
+            <div class="transfer-buttons">
+                <button id="moveRight" class="btn btn-transfer" title="Agregar seleccionados">
+                    &raquo;
+                </button>
+                <button id="moveLeft" class="btn btn-transfer" title="Quitar seleccionados">
+                    &laquo;
+                </button>
+            </div>
+
+            <!-- Selected endpoints -->
+            <div class="endpoint-panel">
+                <div class="panel-header">
+                    <h2>Endpoints Seleccionados</h2>
+                    <span id="selectedCount" class="count">0</span>
+                </div>
+                <div id="selectedList" class="endpoint-list">
+                    <!-- Endpoints seleccionados -->
+                </div>
+                <div class="panel-footer">
+                    <button id="clearSelection" class="btn btn-small btn-danger">Limpiar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration panel -->
+        <div class="config-panel">
+            <h3>Configuración del Servidor</h3>
+            <div class="config-grid">
+                <div class="config-field">
+                    <label for="serviceName">Nombre del servicio:</label>
+                    <input type="text" id="serviceName" value="api" required />
+                </div>
+                <div class="config-field">
+                    <label for="servicePrefix">Prefijo:</label>
+                    <input type="text" id="servicePrefix" placeholder="(igual al nombre)" />
+                </div>
+                <div class="config-field">
+                    <label for="baseUrl">URL Base:</label>
+                    <input type="text" id="baseUrl" placeholder="(desde spec)" />
+                </div>
+                <div class="config-field">
+                    <label for="mcpFramework">Framework:</label>
+                    <select id="mcpFramework">
+                        <option value="fastmcp" selected>FastMCP (Recomendado)</option>
+                        <option value="mcp">MCP Estándar</option>
+                    </select>
+                </div>
+                <div class="config-field">
+                    <label for="environment">Ambiente:</label>
+                    <select id="environment">
+                        <option value="production" selected>Production</option>
+                        <option value="staging">Staging</option>
+                        <option value="development">Development</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer actions -->
+        <div class="footer-actions">
+            <button id="cancelBtn" class="btn btn-secondary">Cancelar</button>
+            <button id="generateBtn" class="btn btn-primary">Generar Servidor MCP</button>
+        </div>
+
+        <!-- Result modal -->
+        <div id="resultModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <h2 id="resultTitle">Resultado</h2>
+                <div id="resultBody"></div>
+                <div class="modal-actions">
+                    <button id="closeModal" class="btn btn-primary">Cerrar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading overlay -->
+        <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+            <div class="spinner"></div>
+            <span>Procesando...</span>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
