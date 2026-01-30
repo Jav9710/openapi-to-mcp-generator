@@ -1,0 +1,18 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Ensure shell scripts always use LF line endings
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+
+# Ensure batch files use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.tar.gz binary
