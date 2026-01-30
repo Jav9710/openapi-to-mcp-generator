@@ -624,6 +624,283 @@ def serve(port: int, output: str, no_browser: bool):
     )
 
 
+@cli.command()
+@click.argument("spec_path", type=click.Path(exists=True))
+@click.option("--detailed", "-d", is_flag=True, help="Mostrar análisis detallado por endpoint")
+@click.option("--json", "output_json", is_flag=True, help="Salida en formato JSON")
+def score(spec_path: str, detailed: bool, output_json: bool):
+    """
+    Calcula el MCP Utility Score de una especificación OpenAPI.
+
+    SPEC_PATH: Ruta al archivo YAML o JSON de OpenAPI
+
+    El score indica qué tan útil será el MCP generado para los LLMs.
+    Un score alto significa mejor documentación y descripciones.
+    """
+    import json
+    import yaml
+
+    try:
+        from .validators import MCPUtilityScorer
+
+        # Cargar spec como dict
+        with open(spec_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            if spec_path.endswith(".json"):
+                raw_spec = json.loads(content)
+            else:
+                raw_spec = yaml.safe_load(content)
+
+        # Calcular score
+        scorer = MCPUtilityScorer()
+        result = scorer.calculate_score(raw_spec)
+
+        if output_json:
+            import json as json_module
+            console.print(json_module.dumps(result.to_dict(), indent=2))
+            return
+
+        # Mostrar resultados con Rich
+        grade_colors = {"A": "green", "B": "blue", "C": "yellow", "D": "orange1", "F": "red"}
+        grade_color = grade_colors.get(result.grade, "white")
+
+        console.print(Panel.fit(
+            f"[bold]MCP Utility Score[/bold]\n\n"
+            f"[bold {grade_color}]{result.overall_score}/100[/bold {grade_color}] "
+            f"(Grade: [{grade_color}]{result.grade}[/{grade_color}])\n\n"
+            f"Endpoints analizados: {result.total_endpoints}\n"
+            f"Necesitan atención: {result.endpoints_needing_attention}",
+            border_style=grade_color
+        ))
+
+        # Mostrar categorías
+        console.print("\n[bold]Desglose por categoría:[/bold]\n")
+
+        score_table = Table(show_header=True, header_style="bold")
+        score_table.add_column("Categoría", width=20)
+        score_table.add_column("Score", justify="right", width=10)
+        score_table.add_column("Completos", justify="right", width=12)
+        score_table.add_column("Barra", width=30)
+
+        for name, cat in result.categories.items():
+            bar = "█" * (cat.score // 5) + "░" * (20 - cat.score // 5)
+            color = "green" if cat.score >= 75 else "yellow" if cat.score >= 50 else "red"
+            score_table.add_row(
+                cat.name,
+                f"[{color}]{cat.score}%[/{color}]",
+                f"{cat.complete_items}/{cat.total_items}",
+                f"[{color}]{bar}[/{color}]"
+            )
+
+        console.print(score_table)
+
+        # Mostrar recomendaciones
+        if result.recommendations:
+            console.print("\n[bold]Recomendaciones:[/bold]\n")
+            for rec in result.recommendations:
+                console.print(f"  {rec}")
+
+        # Mostrar endpoints con problemas si se pide detalle
+        if detailed and result.incomplete_endpoints:
+            console.print(f"\n[bold]Endpoints que necesitan atención ({len(result.incomplete_endpoints)}):[/bold]\n")
+
+            for i, ep in enumerate(result.incomplete_endpoints[:20], 1):
+                priority_color = {"high": "red", "medium": "yellow", "low": "blue"}[ep.priority.value]
+                console.print(
+                    f"  {i}. [{priority_color}][{ep.priority.value.upper()}][/{priority_color}] "
+                    f"[cyan]{ep.method.upper()}[/cyan] {ep.path}"
+                )
+                console.print(f"     Falta: {', '.join(ep.missing_fields)}")
+
+            if len(result.incomplete_endpoints) > 20:
+                console.print(f"\n  ... y {len(result.incomplete_endpoints) - 20} más")
+
+        # Sugerencia de enriquecimiento
+        if result.overall_score < 80:
+            console.print(f"\n[yellow]Tip:[/yellow] Usa 'openapi-to-mcp enrich {spec_path}' para mejorar la especificación.")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("spec_path", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), help="Ruta para guardar el spec enriquecido")
+@click.option("--auto", is_flag=True, help="Usar sugerencias automáticas sin preguntar")
+def enrich(spec_path: str, output: str | None, auto: bool):
+    """
+    Enriquece una especificación OpenAPI con información faltante.
+
+    SPEC_PATH: Ruta al archivo YAML o JSON de OpenAPI
+
+    Modo interactivo: te guía para completar descripciones, tags
+    y operationIds faltantes endpoint por endpoint.
+
+    Modo auto (--auto): aplica todas las sugerencias automáticamente.
+    """
+    import json
+    import yaml
+
+    try:
+        from .validators import MCPUtilityScorer, EnrichmentData
+
+        # Cargar spec
+        with open(spec_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            is_json = spec_path.endswith(".json")
+            if is_json:
+                raw_spec = json.loads(content)
+            else:
+                raw_spec = yaml.safe_load(content)
+
+        # Calcular score inicial
+        scorer = MCPUtilityScorer()
+        initial_score = scorer.calculate_score(raw_spec)
+
+        console.print(Panel.fit(
+            f"[bold]MCP Enrichment Tool[/bold]\n\n"
+            f"Score actual: [{'green' if initial_score.overall_score >= 80 else 'yellow'}]"
+            f"{initial_score.overall_score}/100[/]\n"
+            f"Endpoints a enriquecer: {initial_score.endpoints_needing_attention}",
+            border_style="blue"
+        ))
+
+        if initial_score.endpoints_needing_attention == 0:
+            console.print("\n[green]¡La especificación ya está bien documentada![/green]")
+            return
+
+        # Recopilar enrichments
+        enrichments = []
+
+        if auto:
+            # Modo automático: usar todas las sugerencias
+            console.print("\n[bold]Aplicando sugerencias automáticas...[/bold]\n")
+
+            for ep in initial_score.incomplete_endpoints:
+                enrichment = EnrichmentData(
+                    method=ep.method,
+                    path=ep.path,
+                    description=ep.suggested_values.get("description"),
+                    operation_id=ep.suggested_values.get("operationId"),
+                    tags=ep.suggested_values.get("tags", []),
+                )
+                enrichments.append(enrichment)
+                console.print(f"  [green]✓[/green] {ep.method.upper()} {ep.path}")
+
+        else:
+            # Modo interactivo
+            try:
+                import questionary
+            except ImportError:
+                console.print(f"\n[red]Error:[/red] questionary no está instalado.")
+                console.print("Instálalo con: pip install 'openapi-to-mcp[interactive]'")
+                console.print("\nAlternativamente, usa --auto para aplicar sugerencias automáticamente.")
+                sys.exit(1)
+
+            console.print("\n[bold]Modo interactivo[/bold]")
+            console.print("Para cada endpoint, puedes aceptar la sugerencia, modificarla o saltar.\n")
+
+            for i, ep in enumerate(initial_score.incomplete_endpoints, 1):
+                console.print(f"\n[bold]Endpoint {i}/{len(initial_score.incomplete_endpoints)}[/bold]")
+                console.print(f"  [cyan]{ep.method.upper()}[/cyan] {ep.path}")
+                console.print(f"  Falta: {', '.join(ep.missing_fields)}")
+
+                enrichment = EnrichmentData(method=ep.method, path=ep.path)
+
+                # Descripción
+                if "description" in ep.missing_fields:
+                    suggested = ep.suggested_values.get("description", "")
+                    console.print(f"\n  Sugerencia: [dim]{suggested}[/dim]")
+
+                    action = questionary.select(
+                        "¿Descripción?",
+                        choices=["Usar sugerencia", "Escribir otra", "Saltar"]
+                    ).ask()
+
+                    if action == "Usar sugerencia":
+                        enrichment.description = suggested
+                    elif action == "Escribir otra":
+                        custom = questionary.text("Tu descripción:").ask()
+                        if custom:
+                            enrichment.description = custom
+
+                # OperationId
+                if "operationId" in ep.missing_fields:
+                    suggested = ep.suggested_values.get("operationId", "")
+                    console.print(f"\n  Sugerencia operationId: [dim]{suggested}[/dim]")
+
+                    action = questionary.select(
+                        "¿Operation ID?",
+                        choices=["Usar sugerencia", "Escribir otro", "Saltar"]
+                    ).ask()
+
+                    if action == "Usar sugerencia":
+                        enrichment.operation_id = suggested
+                    elif action == "Escribir otro":
+                        custom = questionary.text("Tu operationId:").ask()
+                        if custom:
+                            enrichment.operation_id = custom
+
+                # Tags
+                if "tags" in ep.missing_fields:
+                    suggested_tags = ep.suggested_values.get("tags", [])
+                    if suggested_tags:
+                        console.print(f"\n  Tags sugeridos: [dim]{', '.join(suggested_tags)}[/dim]")
+
+                        action = questionary.select(
+                            "¿Tags?",
+                            choices=["Usar sugeridos", "Escribir otros", "Saltar"]
+                        ).ask()
+
+                        if action == "Usar sugeridos":
+                            enrichment.tags = suggested_tags
+                        elif action == "Escribir otros":
+                            custom = questionary.text("Tags (separados por coma):").ask()
+                            if custom:
+                                enrichment.tags = [t.strip() for t in custom.split(",") if t.strip()]
+
+                # Agregar si hay cambios
+                if enrichment.description or enrichment.operation_id or enrichment.tags:
+                    enrichments.append(enrichment)
+
+        if not enrichments:
+            console.print("\n[yellow]No se aplicaron cambios.[/yellow]")
+            return
+
+        # Aplicar enrichments
+        enriched_spec = scorer.apply_enrichment(raw_spec, enrichments)
+
+        # Calcular nuevo score
+        new_score = scorer.calculate_score(enriched_spec)
+
+        console.print(f"\n[bold]Resultado:[/bold]")
+        console.print(f"  Score anterior: {initial_score.overall_score}/100")
+        console.print(f"  Score nuevo: [green]{new_score.overall_score}/100[/green] (+{new_score.overall_score - initial_score.overall_score})")
+        console.print(f"  Cambios aplicados: {len(enrichments)}")
+
+        # Guardar archivo
+        if not output:
+            # Generar nombre automático
+            from pathlib import Path
+            p = Path(spec_path)
+            output = str(p.parent / f"{p.stem}_enriched{p.suffix}")
+
+        with open(output, "w", encoding="utf-8") as f:
+            if is_json or output.endswith(".json"):
+                json.dump(enriched_spec, f, indent=2, ensure_ascii=False)
+            else:
+                yaml.dump(enriched_spec, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+        console.print(f"\n[green]✓[/green] Especificación enriquecida guardada en: {output}")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def main():
     """Punto de entrada principal."""
     cli()

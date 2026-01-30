@@ -678,6 +678,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize preview manager
     PreviewManager.init();
 
+    // Initialize MCP Score panel
+    MCPScoreManager.init();
+
+    // Initialize Enrichment Manager
+    EnrichmentManager.init();
+
     loadEndpoints();
     setupEventListeners();
 
@@ -686,6 +692,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load stats
     StatsManager.loadStats();
+
+    // Load MCP utility score
+    MCPScoreManager.loadScore();
 });
 
 // Build API URL with session
@@ -1152,6 +1161,689 @@ function showLoading(show) {
 function showError(message) {
     showModal('Error', message, 'error');
 }
+
+// ================================
+// MCP Score Manager
+// ================================
+
+const MCPScoreManager = {
+    panel: null,
+    isExpanded: false,
+    scoreData: null,
+
+    init() {
+        this.panel = document.getElementById('mcpScorePanel');
+        if (!this.panel) return;
+
+        const toggleBtn = document.getElementById('scoreToggle');
+        const expandBtn = document.getElementById('scoreExpand');
+        const enrichBtn = document.getElementById('enrichBtn');
+
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => this.toggleExpand());
+        }
+        if (expandBtn) {
+            expandBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleExpand();
+            });
+        }
+        if (enrichBtn) {
+            enrichBtn.addEventListener('click', () => EnrichmentManager.start());
+        }
+    },
+
+    async loadScore() {
+        if (!this.panel) return;
+
+        this.panel.style.display = 'block';
+        this.setLoading(true);
+
+        try {
+            const response = await fetch(apiUrl('/api/mcp-score'));
+            const data = await response.json();
+
+            if (data.error) {
+                this.setError(data.error);
+                return;
+            }
+
+            this.scoreData = data;
+            this.render(data);
+        } catch (error) {
+            this.setError('Error al calcular el score');
+            console.error('Score error:', error);
+        }
+    },
+
+    setLoading(loading) {
+        const scoreValue = document.getElementById('scoreValue');
+        const gradeEl = document.getElementById('scoreGrade');
+
+        if (loading) {
+            if (scoreValue) scoreValue.textContent = '...';
+            if (gradeEl) {
+                gradeEl.textContent = '-';
+                gradeEl.className = 'score-grade';
+            }
+        }
+    },
+
+    setError(message) {
+        const scoreValue = document.getElementById('scoreValue');
+        if (scoreValue) scoreValue.textContent = '?';
+        console.error(message);
+    },
+
+    render(data) {
+        // Update score value and grade
+        const scoreValue = document.getElementById('scoreValue');
+        const gradeEl = document.getElementById('scoreGrade');
+
+        if (scoreValue) {
+            scoreValue.textContent = `${data.overall_score}/100`;
+            scoreValue.style.color = this.getScoreColor(data.overall_score);
+        }
+
+        if (gradeEl) {
+            gradeEl.textContent = data.grade;
+            gradeEl.className = `score-grade grade-${data.grade.toLowerCase()}`;
+        }
+
+        // Render categories
+        this.renderCategories(data.categories);
+
+        // Render recommendations
+        this.renderRecommendations(data.recommendations);
+
+        // Update action section
+        this.renderAction(data);
+    },
+
+    renderCategories(categories) {
+        const container = document.getElementById('scoreCategories');
+        if (!container || !categories) return;
+
+        const html = Object.entries(categories).map(([key, cat]) => {
+            const fillClass = cat.score >= 75 ? 'high' : cat.score >= 50 ? 'medium' : 'low';
+            return `
+                <div class="category-row">
+                    <span class="category-name">${cat.name}</span>
+                    <div class="category-bar">
+                        <div class="category-fill ${fillClass}" style="width: ${cat.score}%"></div>
+                    </div>
+                    <span class="category-score">${cat.score}%</span>
+                    <span class="category-details">${cat.complete_items}/${cat.total_items}</span>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = html;
+    },
+
+    renderRecommendations(recommendations) {
+        const container = document.getElementById('scoreRecommendations');
+        if (!container) return;
+
+        if (!recommendations || recommendations.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+        const listEl = container.querySelector('.recommendation-list');
+        if (listEl) {
+            listEl.innerHTML = recommendations.map(rec => `
+                <div class="recommendation-item">${this.escapeHtml(rec)}</div>
+            `).join('');
+        }
+    },
+
+    renderAction(data) {
+        const attention = document.getElementById('endpointsAttention');
+        const enrichBtn = document.getElementById('enrichBtn');
+
+        if (attention) {
+            attention.innerHTML = `<strong>${data.endpoints_needing_attention}</strong> endpoints necesitan atención`;
+        }
+
+        if (enrichBtn) {
+            if (data.endpoints_needing_attention > 0 && data.overall_score < 90) {
+                enrichBtn.style.display = 'flex';
+            } else {
+                enrichBtn.style.display = 'none';
+            }
+        }
+    },
+
+    toggleExpand() {
+        this.isExpanded = !this.isExpanded;
+        const body = document.getElementById('scoreBody');
+
+        if (this.isExpanded) {
+            body.style.display = 'block';
+            this.panel.classList.add('expanded');
+        } else {
+            body.style.display = 'none';
+            this.panel.classList.remove('expanded');
+        }
+    },
+
+    getScoreColor(score) {
+        if (score >= 90) return 'var(--success-color)';
+        if (score >= 75) return 'var(--primary-color)';
+        if (score >= 60) return 'var(--warning-color)';
+        if (score >= 40) return '#f97316';
+        return 'var(--danger-color)';
+    },
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+};
+
+// ================================
+// Enrichment Manager
+// ================================
+
+const EnrichmentManager = {
+    modal: null,
+    endpoints: [],
+    currentIndex: 0,
+    enrichments: [],
+    originalScore: 0,
+
+    init() {
+        this.modal = document.getElementById('enrichmentModal');
+        if (!this.modal) return;
+
+        // Close button
+        const closeBtn = document.getElementById('closeEnrichment');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.hide());
+        }
+
+        // Navigation buttons
+        const prevBtn = document.getElementById('enrichPrev');
+        const nextBtn = document.getElementById('enrichNext');
+        const skipBtn = document.getElementById('enrichSkip');
+        const finishBtn = document.getElementById('enrichFinish');
+
+        if (prevBtn) prevBtn.addEventListener('click', () => this.prev());
+        if (nextBtn) nextBtn.addEventListener('click', () => this.next());
+        if (skipBtn) skipBtn.addEventListener('click', () => this.skip());
+        if (finishBtn) finishBtn.addEventListener('click', () => this.finish());
+
+        // Close on overlay click
+        this.modal.addEventListener('click', (e) => {
+            if (e.target === this.modal) {
+                this.hide();
+            }
+        });
+    },
+
+    async start() {
+        showLoading(true);
+
+        try {
+            const response = await fetch(apiUrl('/api/enrichment/suggestions'));
+            const data = await response.json();
+            showLoading(false);
+
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+
+            this.endpoints = data.endpoints;
+            this.originalScore = data.overall_score;
+            this.currentIndex = 0;
+            this.enrichments = [];
+
+            // Initialize enrichments array
+            this.endpoints.forEach(ep => {
+                this.enrichments.push({
+                    method: ep.method,
+                    path: ep.path,
+                    description: null,
+                    summary: null,
+                    operation_id: null,
+                    tags: [],
+                    parameter_descriptions: {}
+                });
+            });
+
+            this.show();
+            this.renderCurrentEndpoint();
+        } catch (error) {
+            showLoading(false);
+            showError('Error cargando sugerencias: ' + error.message);
+        }
+    },
+
+    show() {
+        if (!this.modal) return;
+        this.modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    },
+
+    hide() {
+        if (!this.modal) return;
+        this.modal.style.display = 'none';
+        document.body.style.overflow = '';
+    },
+
+    renderCurrentEndpoint() {
+        if (this.endpoints.length === 0) {
+            this.showComplete();
+            return;
+        }
+
+        const ep = this.endpoints[this.currentIndex];
+        const enrichment = this.enrichments[this.currentIndex];
+
+        // Update progress
+        const progressFill = document.getElementById('enrichProgressFill');
+        const progressText = document.getElementById('enrichProgressText');
+        if (progressFill) {
+            const percent = ((this.currentIndex + 1) / this.endpoints.length) * 100;
+            progressFill.style.width = `${percent}%`;
+        }
+        if (progressText) {
+            progressText.textContent = `${this.currentIndex + 1} de ${this.endpoints.length}`;
+        }
+
+        // Update endpoint info
+        const methodEl = document.getElementById('enrichMethod');
+        const pathEl = document.getElementById('enrichPath');
+        const priorityEl = document.getElementById('enrichPriority');
+
+        if (methodEl) {
+            methodEl.textContent = ep.method.toUpperCase();
+            methodEl.className = `endpoint-method-large method-${ep.method.toLowerCase()}`;
+        }
+        if (pathEl) pathEl.textContent = ep.path;
+        if (priorityEl) {
+            priorityEl.textContent = ep.priority;
+            priorityEl.className = `endpoint-priority priority-${ep.priority}`;
+        }
+
+        // Update missing fields
+        const missingEl = document.getElementById('missingFields');
+        if (missingEl) {
+            missingEl.innerHTML = ep.missing_fields.map(f => `
+                <span class="missing-field-badge">${this.formatFieldName(f)}</span>
+            `).join('');
+        }
+
+        // Render form
+        this.renderForm(ep, enrichment);
+
+        // Update buttons
+        const prevBtn = document.getElementById('enrichPrev');
+        const finishBtn = document.getElementById('enrichFinish');
+        const nextBtn = document.getElementById('enrichNext');
+
+        if (prevBtn) prevBtn.disabled = this.currentIndex === 0;
+        if (finishBtn) finishBtn.style.display = this.currentIndex === this.endpoints.length - 1 ? 'flex' : 'none';
+        if (nextBtn) nextBtn.style.display = this.currentIndex < this.endpoints.length - 1 ? 'flex' : 'none';
+    },
+
+    renderForm(ep, enrichment) {
+        const formEl = document.getElementById('enrichmentForm');
+        if (!formEl) return;
+
+        let html = '';
+
+        // Description field
+        if (ep.missing_fields.includes('description')) {
+            const suggested = ep.suggested_values?.description || '';
+            html += `
+                <div class="form-group">
+                    <label>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                        </svg>
+                        Descripción
+                    </label>
+                    <textarea id="enrichDescription" rows="3" placeholder="Describe qué hace este endpoint...">${enrichment.description || ''}</textarea>
+                    <div class="suggested-value">
+                        Sugerencia: <code>${this.escapeHtml(suggested)}</code>
+                        <button type="button" class="btn-use-suggestion" onclick="EnrichmentManager.useSuggestion('description', '${this.escapeAttr(suggested)}')">Usar</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // OperationId field
+        if (ep.missing_fields.includes('operationId')) {
+            const suggested = ep.suggested_values?.operationId || '';
+            html += `
+                <div class="form-group">
+                    <label>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="16 18 22 12 16 6"></polyline>
+                            <polyline points="8 6 2 12 8 18"></polyline>
+                        </svg>
+                        Operation ID
+                    </label>
+                    <input type="text" id="enrichOperationId" placeholder="ej: getUserById" value="${enrichment.operation_id || ''}">
+                    <div class="suggested-value">
+                        Sugerencia: <code>${this.escapeHtml(suggested)}</code>
+                        <button type="button" class="btn-use-suggestion" onclick="EnrichmentManager.useSuggestion('operationId', '${this.escapeAttr(suggested)}')">Usar</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Tags field
+        if (ep.missing_fields.includes('tags')) {
+            const suggestedTags = ep.suggested_values?.tags || [];
+            html += `
+                <div class="form-group">
+                    <label>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+                            <line x1="7" y1="7" x2="7.01" y2="7"></line>
+                        </svg>
+                        Tags
+                    </label>
+                    <div class="tags-input-container" id="tagsContainer">
+                        ${(enrichment.tags || []).map(tag => `
+                            <span class="tag-chip">
+                                ${this.escapeHtml(tag)}
+                                <button type="button" class="tag-chip-remove" onclick="EnrichmentManager.removeTag('${this.escapeAttr(tag)}')">×</button>
+                            </span>
+                        `).join('')}
+                        <input type="text" class="tags-input" id="enrichTagInput" placeholder="Escribe y presiona Enter..." onkeydown="EnrichmentManager.handleTagInput(event)">
+                    </div>
+                    <div class="suggested-tags">
+                        ${suggestedTags.map(tag => `
+                            <span class="suggested-tag" onclick="EnrichmentManager.addTag('${this.escapeAttr(tag)}')">${this.escapeHtml(tag)}</span>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Parameter descriptions
+        if (ep.missing_fields.includes('parameter_descriptions') && ep.suggested_values?.undocumented_parameters?.length > 0) {
+            const params = ep.suggested_values.undocumented_parameters;
+            html += `
+                <div class="params-section">
+                    <h4>Descripciones de Parámetros</h4>
+                    ${params.map(param => `
+                        <div class="param-item">
+                            <span class="param-name">${this.escapeHtml(param)}</span>
+                            <div class="param-input">
+                                <input type="text" id="param_${param}" placeholder="Describe este parámetro..." value="${enrichment.parameter_descriptions[param] || ''}">
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        formEl.innerHTML = html || '<p style="color: var(--text-muted);">Este endpoint está completo.</p>';
+    },
+
+    useSuggestion(field, value) {
+        if (field === 'description') {
+            const el = document.getElementById('enrichDescription');
+            if (el) el.value = value;
+        } else if (field === 'operationId') {
+            const el = document.getElementById('enrichOperationId');
+            if (el) el.value = value;
+        }
+    },
+
+    addTag(tag) {
+        const enrichment = this.enrichments[this.currentIndex];
+        if (!enrichment.tags.includes(tag)) {
+            enrichment.tags.push(tag);
+            this.renderCurrentEndpoint();
+        }
+    },
+
+    removeTag(tag) {
+        const enrichment = this.enrichments[this.currentIndex];
+        enrichment.tags = enrichment.tags.filter(t => t !== tag);
+        this.renderCurrentEndpoint();
+    },
+
+    handleTagInput(event) {
+        if (event.key === 'Enter' && event.target.value.trim()) {
+            this.addTag(event.target.value.trim());
+            event.target.value = '';
+            event.preventDefault();
+        }
+    },
+
+    saveCurrentForm() {
+        const enrichment = this.enrichments[this.currentIndex];
+
+        const descEl = document.getElementById('enrichDescription');
+        const opIdEl = document.getElementById('enrichOperationId');
+
+        if (descEl) enrichment.description = descEl.value.trim() || null;
+        if (opIdEl) enrichment.operation_id = opIdEl.value.trim() || null;
+
+        // Save parameter descriptions
+        const ep = this.endpoints[this.currentIndex];
+        if (ep.suggested_values?.undocumented_parameters) {
+            ep.suggested_values.undocumented_parameters.forEach(param => {
+                const paramEl = document.getElementById(`param_${param}`);
+                if (paramEl && paramEl.value.trim()) {
+                    enrichment.parameter_descriptions[param] = paramEl.value.trim();
+                }
+            });
+        }
+    },
+
+    prev() {
+        if (this.currentIndex > 0) {
+            this.saveCurrentForm();
+            this.currentIndex--;
+            this.renderCurrentEndpoint();
+        }
+    },
+
+    next() {
+        if (this.currentIndex < this.endpoints.length - 1) {
+            this.saveCurrentForm();
+            this.currentIndex++;
+            this.renderCurrentEndpoint();
+        }
+    },
+
+    skip() {
+        // Clear current enrichment
+        this.enrichments[this.currentIndex] = {
+            method: this.endpoints[this.currentIndex].method,
+            path: this.endpoints[this.currentIndex].path,
+            description: null,
+            summary: null,
+            operation_id: null,
+            tags: [],
+            parameter_descriptions: {}
+        };
+
+        if (this.currentIndex < this.endpoints.length - 1) {
+            this.currentIndex++;
+            this.renderCurrentEndpoint();
+        } else {
+            this.finish();
+        }
+    },
+
+    async finish() {
+        this.saveCurrentForm();
+
+        // Filter out empty enrichments
+        const validEnrichments = this.enrichments.filter(e =>
+            e.description || e.summary || e.operation_id || e.tags.length > 0 || Object.keys(e.parameter_descriptions).length > 0
+        );
+
+        if (validEnrichments.length === 0) {
+            this.showComplete(true);
+            return;
+        }
+
+        showLoading(true);
+
+        try {
+            const response = await fetch(apiUrl('/api/enrichment/apply'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enrichments: validEnrichments,
+                    session_id: SESSION_ID || null
+                })
+            });
+
+            const data = await response.json();
+            showLoading(false);
+
+            if (data.success) {
+                this.showComplete(false, data);
+            } else {
+                showError(data.error || 'Error aplicando enriquecimiento');
+            }
+        } catch (error) {
+            showLoading(false);
+            showError('Error: ' + error.message);
+        }
+    },
+
+    showComplete(skippedAll = false, data = null) {
+        const body = document.getElementById('enrichmentBody');
+        if (!body) return;
+
+        let html;
+
+        if (skippedAll) {
+            html = `
+                <div class="enrichment-complete">
+                    <div class="complete-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="16" x2="12" y2="12"></line>
+                            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                        </svg>
+                    </div>
+                    <h3>Sin cambios</h3>
+                    <p>No se realizaron modificaciones a la especificación.</p>
+                    <div class="complete-actions">
+                        <button class="btn btn-primary" onclick="EnrichmentManager.hide()">Cerrar</button>
+                    </div>
+                </div>
+            `;
+        } else {
+            const newScore = data?.new_score?.overall_score || 0;
+            const newGrade = data?.new_score?.grade || '-';
+
+            html = `
+                <div class="enrichment-complete">
+                    <div class="complete-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                    </div>
+                    <h3>¡Enriquecimiento Completado!</h3>
+                    <p>La especificación ha sido actualizada con la nueva información.</p>
+                    <div class="score-comparison">
+                        <div class="score-before">
+                            <div class="score-value-lg">${this.originalScore}</div>
+                            <div class="score-label">Score anterior</div>
+                        </div>
+                        <div class="score-arrow">→</div>
+                        <div class="score-after">
+                            <div class="score-value-lg">${newScore}</div>
+                            <div class="score-label">Score nuevo (${newGrade})</div>
+                        </div>
+                    </div>
+                    <div class="complete-actions">
+                        <button class="btn btn-secondary" onclick="EnrichmentManager.exportSpec()">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Descargar OpenAPI
+                        </button>
+                        <button class="btn btn-primary" onclick="EnrichmentManager.continueWithEnriched('${data?.session_id || ''}')">
+                            Continuar →
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        body.innerHTML = html;
+
+        // Hide footer during complete
+        const footer = document.querySelector('.enrichment-footer');
+        if (footer) footer.style.display = 'none';
+    },
+
+    async exportSpec() {
+        try {
+            const response = await fetch(apiUrl('/api/enrichment/export'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ format: 'yaml' })
+            });
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'openapi_enriched.yaml';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+        } catch (error) {
+            showError('Error descargando: ' + error.message);
+        }
+    },
+
+    continueWithEnriched(newSessionId) {
+        this.hide();
+        if (newSessionId) {
+            window.location.href = `/selector?session=${newSessionId}`;
+        } else {
+            // Reload current page to refresh data
+            window.location.reload();
+        }
+    },
+
+    formatFieldName(field) {
+        const names = {
+            'description': 'Descripción',
+            'operationId': 'Operation ID',
+            'tags': 'Tags',
+            'parameter_descriptions': 'Parámetros'
+        };
+        return names[field] || field;
+    },
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text || '';
+        return div.innerHTML;
+    },
+
+    escapeAttr(text) {
+        return (text || '').replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+};
 
 // Debounce utility
 function debounce(func, wait) {

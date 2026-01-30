@@ -396,8 +396,8 @@ def register_routes(app: Flask):
 
         if session_id and session_id in _session_specs:
             spec_path = _session_specs[session_id].get("spec_path")
-        elif _global_spec_path:
-            spec_path = _global_spec_path
+        elif _current_spec_path:
+            spec_path = _current_spec_path
 
         if not spec_path:
             return jsonify({"error": "No hay spec cargado"}), 400
@@ -423,6 +423,219 @@ def register_routes(app: Flask):
         result = validator.validate_content(content, format_type)
 
         return jsonify(result.to_dict())
+
+    @app.route("/api/mcp-score")
+    def get_mcp_score():
+        """Calcula el MCP Utility Score para la especificación cargada."""
+        from ..validators import MCPUtilityScorer
+        import yaml
+
+        session_id = request.args.get("session")
+        spec_path = None
+        raw_spec = None
+
+        if session_id and session_id in _session_specs:
+            spec_path = _session_specs[session_id].get("spec_path")
+        elif _current_spec_path:
+            spec_path = _current_spec_path
+
+        if not spec_path:
+            return jsonify({"error": "No hay spec cargado"}), 400
+
+        # Cargar spec como dict para el scorer
+        try:
+            with open(spec_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                if spec_path.endswith(".json"):
+                    raw_spec = json.loads(content)
+                else:
+                    raw_spec = yaml.safe_load(content)
+        except Exception as e:
+            return jsonify({"error": f"Error cargando spec: {str(e)}"}), 500
+
+        scorer = MCPUtilityScorer()
+        score = scorer.calculate_score(raw_spec)
+
+        return jsonify(score.to_dict())
+
+    @app.route("/api/enrichment/suggestions")
+    def get_enrichment_suggestions():
+        """Obtiene sugerencias de enriquecimiento para endpoints incompletos."""
+        from ..validators import MCPUtilityScorer
+        import yaml
+
+        session_id = request.args.get("session")
+        spec_path = None
+
+        if session_id and session_id in _session_specs:
+            spec_path = _session_specs[session_id].get("spec_path")
+        elif _current_spec_path:
+            spec_path = _current_spec_path
+
+        if not spec_path:
+            return jsonify({"error": "No hay spec cargado"}), 400
+
+        # Cargar spec
+        try:
+            with open(spec_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                if spec_path.endswith(".json"):
+                    raw_spec = json.loads(content)
+                else:
+                    raw_spec = yaml.safe_load(content)
+        except Exception as e:
+            return jsonify({"error": f"Error cargando spec: {str(e)}"}), 500
+
+        scorer = MCPUtilityScorer()
+        score = scorer.calculate_score(raw_spec)
+
+        # Retornar solo los endpoints incompletos con sugerencias
+        return jsonify({
+            "endpoints": [e.to_dict() for e in score.incomplete_endpoints],
+            "total_incomplete": len(score.incomplete_endpoints),
+            "overall_score": score.overall_score,
+            "grade": score.grade,
+        })
+
+    @app.route("/api/enrichment/apply", methods=["POST"])
+    def apply_enrichment():
+        """Aplica datos de enriquecimiento a la especificación."""
+        from ..validators import MCPUtilityScorer, EnrichmentData
+        import yaml
+
+        session_id = request.args.get("session") or (request.json or {}).get("session_id")
+        spec_path = None
+
+        if session_id and session_id in _session_specs:
+            spec_path = _session_specs[session_id].get("spec_path")
+        elif _current_spec_path:
+            spec_path = _current_spec_path
+
+        if not spec_path:
+            return jsonify({"error": "No hay spec cargado"}), 400
+
+        data = request.json
+        enrichments_data = data.get("enrichments", [])
+
+        if not enrichments_data:
+            return jsonify({"error": "No se proporcionaron datos de enriquecimiento"}), 400
+
+        # Cargar spec original
+        try:
+            with open(spec_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                if spec_path.endswith(".json"):
+                    raw_spec = json.loads(content)
+                else:
+                    raw_spec = yaml.safe_load(content)
+        except Exception as e:
+            return jsonify({"error": f"Error cargando spec: {str(e)}"}), 500
+
+        # Convertir enrichments
+        enrichments = []
+        for e in enrichments_data:
+            enrichments.append(EnrichmentData(
+                method=e.get("method", ""),
+                path=e.get("path", ""),
+                description=e.get("description"),
+                summary=e.get("summary"),
+                operation_id=e.get("operation_id"),
+                tags=e.get("tags", []),
+                parameter_descriptions=e.get("parameter_descriptions", {}),
+            ))
+
+        # Aplicar enriquecimiento
+        scorer = MCPUtilityScorer()
+        enriched_spec = scorer.apply_enrichment(raw_spec, enrichments)
+
+        # Calcular nuevo score
+        new_score = scorer.calculate_score(enriched_spec)
+
+        # Guardar spec enriquecido temporalmente
+        enriched_session_id = str(uuid.uuid4())[:8]
+        temp_dir = tempfile.mkdtemp()
+
+        # Determinar formato
+        is_json = spec_path.endswith(".json")
+        ext = ".json" if is_json else ".yaml"
+        enriched_filename = f"enriched_spec{ext}"
+        enriched_path = Path(temp_dir) / enriched_filename
+
+        with open(enriched_path, "w", encoding="utf-8") as f:
+            if is_json:
+                json.dump(enriched_spec, f, indent=2, ensure_ascii=False)
+            else:
+                yaml.dump(enriched_spec, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+        # Parsear el nuevo spec
+        from ..parsers.openapi_parser import OpenAPIParser
+        parser = OpenAPIParser(strict_validation=False)
+        parsed_spec = parser.parse(str(enriched_path))
+
+        # Guardar en sesión
+        _session_specs[enriched_session_id] = {
+            "spec": parsed_spec,
+            "spec_path": str(enriched_path),
+            "temp_dir": temp_dir,
+            "filename": enriched_filename,
+            "enriched_from": session_id,
+            "raw_spec": enriched_spec,
+        }
+
+        return jsonify({
+            "success": True,
+            "session_id": enriched_session_id,
+            "new_score": new_score.to_dict(),
+            "changes_applied": len(enrichments),
+            "redirect_url": f"/selector?session={enriched_session_id}",
+        })
+
+    @app.route("/api/enrichment/export", methods=["POST"])
+    def export_enriched_spec():
+        """Exporta la especificación enriquecida como archivo descargable."""
+        from ..validators import MCPUtilityScorer
+        import yaml
+
+        session_id = request.args.get("session") or (request.json or {}).get("session_id")
+
+        if not session_id or session_id not in _session_specs:
+            return jsonify({"error": "Sesión no encontrada"}), 400
+
+        session_data = _session_specs[session_id]
+        raw_spec = session_data.get("raw_spec")
+
+        if not raw_spec:
+            # Cargar desde archivo
+            spec_path = session_data.get("spec_path")
+            if not spec_path:
+                return jsonify({"error": "No hay spec disponible"}), 400
+
+            with open(spec_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                if spec_path.endswith(".json"):
+                    raw_spec = json.loads(content)
+                else:
+                    raw_spec = yaml.safe_load(content)
+
+        data = request.json or {}
+        format_type = data.get("format", "yaml")
+
+        scorer = MCPUtilityScorer()
+        content = scorer.export_enriched_spec(raw_spec, format_type)
+
+        # Crear archivo en memoria
+        memory_file = io.BytesIO(content.encode("utf-8"))
+        memory_file.seek(0)
+
+        ext = ".json" if format_type == "json" else ".yaml"
+        filename = f"openapi_enriched{ext}"
+
+        return send_file(
+            memory_file,
+            mimetype="application/octet-stream",
+            as_attachment=True,
+            download_name=filename,
+        )
 
     @app.route("/api/stats")
     def get_stats():
