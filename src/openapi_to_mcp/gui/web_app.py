@@ -774,7 +774,6 @@ def register_routes(app: Flask):
             # Transformar
             tool_transformer = ToolTransformer(
                 service_prefix=service_prefix,
-                base_url=base_url,
             )
             tools = tool_transformer.transform(spec, endpoint_filter=endpoint_filter)
 
