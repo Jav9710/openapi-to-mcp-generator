@@ -29,7 +29,38 @@ _RESOLVING_MARKER = object()
 
 class OpenAPIParserError(Exception):
     """Error durante el parsing de OpenAPI."""
-    pass
+
+    def __init__(
+        self,
+        message: str,
+        context: str | None = None,
+        suggestion: str | None = None,
+        docs_url: str | None = None,
+    ):
+        """
+        Error de parsing con contexto y sugerencias.
+
+        Args:
+            message: Mensaje principal del error
+            context: Contexto adicional (qué estaba haciendo)
+            suggestion: Sugerencia de cómo arreglar el error
+            docs_url: URL de documentación relevante
+        """
+        self.message = message
+        self.context = context
+        self.suggestion = suggestion
+        self.docs_url = docs_url
+
+        # Construir mensaje completo
+        full_message = message
+        if context:
+            full_message += f"\n  Contexto: {context}"
+        if suggestion:
+            full_message += f"\n  Sugerencia: {suggestion}"
+        if docs_url:
+            full_message += f"\n  Documentación: {docs_url}"
+
+        super().__init__(full_message)
 
 
 class OpenAPIParser:
@@ -74,7 +105,11 @@ class OpenAPIParser:
         spec_path = Path(spec_path)
 
         if not spec_path.exists():
-            raise OpenAPIParserError(f"Archivo no encontrado: {spec_path}")
+            raise OpenAPIParserError(
+                message=f"Archivo no encontrado: {spec_path}",
+                context="Intentando cargar especificación OpenAPI",
+                suggestion="Verifica que la ruta del archivo sea correcta y que el archivo exista",
+            )
 
         logger.info(f"Parsing OpenAPI spec: {spec_path}")
 
@@ -146,7 +181,11 @@ class OpenAPIParser:
                     return json.loads(content)
 
         except Exception as e:
-            raise OpenAPIParserError(f"Error cargando {spec_path}: {e}")
+            raise OpenAPIParserError(
+                message=f"Error cargando archivo",
+                context=f"Intentando leer {spec_path}",
+                suggestion="Verifica que el archivo sea un YAML o JSON válido. Error original: " + str(e),
+            )
 
     def _validate_version(self, spec: dict[str, Any]) -> None:
         """Valida que la versión de OpenAPI sea soportada."""
@@ -154,16 +193,22 @@ class OpenAPIParser:
 
         if not openapi_version:
             raise OpenAPIParserError(
-                "No se encontró campo 'openapi' en la especificación. "
-                "Asegúrese de que es OpenAPI 3.0+ (no Swagger 2.0)"
+                message="Campo 'openapi' no encontrado en la especificación",
+                context="Validando versión de OpenAPI",
+                suggestion="Asegúrate de que sea un archivo OpenAPI 3.0+ válido (no Swagger 2.0). "
+                          "El archivo debe tener 'openapi: 3.0.x' o 'openapi: 3.1.x' en la raíz.",
+                docs_url="https://spec.openapi.org/oas/latest.html#openapi-object",
             )
 
         major_minor = ".".join(openapi_version.split(".")[:2])
 
         if major_minor not in self.SUPPORTED_VERSIONS:
             raise OpenAPIParserError(
-                f"Versión OpenAPI {openapi_version} no soportada. "
-                f"Versiones soportadas: {self.SUPPORTED_VERSIONS}"
+                message=f"Versión OpenAPI {openapi_version} no soportada",
+                context=f"Versiones soportadas: {', '.join(self.SUPPORTED_VERSIONS)}",
+                suggestion="Convierte tu especificación a OpenAPI 3.0 o 3.1. "
+                          "Si tienes Swagger 2.0, usa herramientas como swagger2openapi para convertirlo.",
+                docs_url="https://github.com/Mermade/oas-kit/tree/main/packages/swagger2openapi",
             )
 
         logger.debug(f"OpenAPI version: {openapi_version}")
@@ -175,7 +220,20 @@ class OpenAPIParser:
             validate(spec_dict)
             logger.debug("Validación OpenAPI exitosa")
         except Exception as e:
-            raise OpenAPIParserError(f"Validación OpenAPI fallida: {e}")
+            error_msg = str(e)
+            # Extraer información útil del error si es posible
+            suggestion = "Revisa la especificación OpenAPI y corrige los errores de validación. "
+            if "required property" in error_msg.lower():
+                suggestion += "Faltan propiedades requeridas. "
+            elif "schema" in error_msg.lower():
+                suggestion += "Verifica que los schemas estén correctamente definidos. "
+
+            raise OpenAPIParserError(
+                message="Validación OpenAPI fallida",
+                context=error_msg[:200],  # Limitar contexto a 200 caracteres
+                suggestion=suggestion + "Usa --skip-validation para omitir validación estricta si es necesario.",
+                docs_url="https://spec.openapi.org/oas/latest.html",
+            )
 
     def _resolve_references(
         self,
