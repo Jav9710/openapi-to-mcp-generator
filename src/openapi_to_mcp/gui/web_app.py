@@ -803,8 +803,9 @@ def register_routes(app: Flask):
             resource_transformer = ResourceTransformer(service_prefix=service_prefix)
             resources = resource_transformer.transform(spec)
 
-            # Generar código en memoria
-            generator = MCPServerGenerator(output_dir=None)
+            # Generar código en directorio temporal
+            temp_dir = tempfile.mkdtemp()
+            generator = MCPServerGenerator(output_dir=temp_dir)
             code_preview = generator.generate_preview(spec, tools, resources, config)
 
             return jsonify({
