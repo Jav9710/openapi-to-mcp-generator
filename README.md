@@ -10,9 +10,11 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
 - **Soporte FastMCP y MCP**: Genera servidores con FastMCP (recomendado) o MCP estándar
 - **Autenticación flexible**: Soporta API Key, Bearer Token, Basic Auth y OAuth2
 - **Cliente HTTP resiliente**: Reintentos automáticos con backoff exponencial
-- **Tracing corporativo**: Soporte para Correlation IDs y headers personalizados
-- **Generación batch**: Procesa múltiples microservicios en una sola ejecución
 - **Interfaz gráfica web**: Selecciona endpoints visualmente con drag & drop
+- **Modo standalone**: Ejecuta la GUI sin necesidad de archivo pre-cargado
+- **Carga desde URL**: Importa especificaciones OpenAPI desde URLs remotas
+- **Descarga como ZIP**: Genera y descarga servidores MCP comprimidos
+- **Despliegue Docker**: Imagen Docker lista para producción
 
 ---
 
@@ -25,15 +27,17 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
    - [CLI con Filtros](#modo-2-cli-con-filtros-de-endpoints)
    - [CLI Interactivo](#modo-3-cli-interactivo)
    - [GUI Web](#modo-4-gui-web)
-4. [Frameworks MCP](#frameworks-mcp)
-5. [Configuración](#configuración)
-6. [Procesamiento Batch](#procesamiento-batch)
-7. [Integración con Claude Desktop](#integración-con-claude-desktop)
-8. [Arquitectura](#arquitectura)
-9. [Mapeo OpenAPI → MCP](#mapeo-openapi--mcp)
-10. [Ejemplos](#ejemplos)
-11. [Consideraciones](#consideraciones)
-12. [Contribuir](#contribuir)
+   - [Modo Standalone](#modo-5-modo-standalone-web)
+4. [Despliegue Docker](#despliegue-docker)
+5. [Frameworks MCP](#frameworks-mcp)
+6. [Configuración](#configuración)
+7. [Procesamiento Batch](#procesamiento-batch)
+8. [Integración con Claude Desktop](#integración-con-claude-desktop)
+9. [Arquitectura](#arquitectura)
+10. [Mapeo OpenAPI → MCP](#mapeo-openapi--mcp)
+11. [Ejemplos](#ejemplos)
+12. [Consideraciones](#consideraciones)
+13. [Contribuir](#contribuir)
 
 ---
 
@@ -70,7 +74,7 @@ pip install -e .
 # Instalar con modo interactivo CLI (questionary)
 pip install -e ".[interactive]"
 
-# Instalar con GUI web (Flask)
+# Instalar con GUI web (Flask + requests + gunicorn)
 pip install -e ".[gui]"
 
 # Instalar todas las características
@@ -124,6 +128,18 @@ openapi-to-mcp generate mi-api.yaml --service-name mi_api
 cd output/mcp_server_mi_api
 pip install -r requirements.txt
 python -m src.server
+```
+
+### Alternativa: Usar la GUI Web
+
+```bash
+# Opción 1: Con archivo local
+openapi-to-mcp gui mi-api.yaml
+
+# Opción 2: Modo standalone (subir archivo o cargar desde URL)
+openapi-to-mcp gui
+# o
+openapi-to-mcp serve
 ```
 
 ---
@@ -231,7 +247,7 @@ openapi-to-mcp generate api.yaml -n myservice --interactive
 
 ### Modo 4: GUI Web
 
-Interfaz gráfica web para selección visual de endpoints:
+Interfaz gráfica web para selección visual de endpoints con un archivo pre-cargado:
 
 ```bash
 # Requiere: pip install flask
@@ -255,11 +271,63 @@ openapi-to-mcp gui <spec_path> [opciones]
 openapi-to-mcp gui ./specs/large-api.yaml --port 8080
 ```
 
-**Interfaz de la GUI:**
+---
+
+### Modo 5: Modo Standalone (Web)
+
+Ejecuta la GUI sin necesidad de un archivo pre-cargado. Permite:
+
+- **Subir archivos**: Arrastra y suelta o selecciona desde el explorador
+- **Cargar desde URL**: Ingresa la URL directa a una especificación OpenAPI
+- **Descargar como ZIP**: Genera el servidor y descárgalo comprimido
+
+```bash
+# Opción 1: Comando gui sin argumentos
+openapi-to-mcp gui
+
+# Opción 2: Comando serve dedicado
+openapi-to-mcp serve --port 5000 --output ./output
+```
+
+**Interfaz de Upload:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│            OpenAPI to MCP Generator                              │
+│                                                                  │
+│     ┌─────────────────────────────────────────────────────┐     │
+│     │              Carga tu especificación                 │     │
+│     │                                                      │     │
+│     │    [  Archivo  ]  [    URL    ]                     │     │
+│     │                                                      │     │
+│     │    ┌────────────────────────────────────────────┐   │     │
+│     │    │                                            │   │     │
+│     │    │       Arrastra tu archivo aquí             │   │     │
+│     │    │                  o                         │   │     │
+│     │    │      [ Seleccionar Archivo ]               │   │     │
+│     │    │                                            │   │     │
+│     │    │  Formatos: .yaml, .yml, .json              │   │     │
+│     │    └────────────────────────────────────────────┘   │     │
+│     │                                                      │     │
+│     │    ─── O cargar desde URL ───                       │     │
+│     │                                                      │     │
+│     │    [ https://api.example.com/openapi.json ] [Cargar]│     │
+│     │                                                      │     │
+│     │    Ejemplos: [Petstore API] [GitHub API]            │     │
+│     └─────────────────────────────────────────────────────┘     │
+│                                                                  │
+│     ┌─────────┐  ┌─────────┐  ┌─────────┐                       │
+│     │Selección│  │ FastMCP │  │Descarga │                       │
+│     │ Visual  │  │  / MCP  │  │  ZIP    │                       │
+│     └─────────┘  └─────────┘  └─────────┘                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Interfaz de Selección de Endpoints:**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  OpenAPI to MCP Generator - Selección de Endpoints                      │
+│  OpenAPI to MCP Generator                    API: Petstore v1.0        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  [Vista: Lista ▼] [Buscar: ____________] [Patrón: /users/*] [Agregar]  │
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -269,14 +337,12 @@ openapi-to-mcp gui ./specs/large-api.yaml --port 8080
 │  │ □ [GET] /users/{id}     │   <<    │ ☑ [GET] /orders/{id}    │       │
 │  │ □ [PUT] /users/{id}     │         │ ☑ [PUT] /orders/{id}    │       │
 │  │ □ [DELETE] /users/{id}  │         │ ☑ [DELETE] /orders/{id} │       │
-│  │ ▼ Products              │         │                         │       │
-│  │   □ [GET] /products     │         │                         │       │
-│  │   □ [POST] /products    │         │                         │       │
 │  └─────────────────────────┘         └─────────────────────────┘       │
 │                                                                         │
 │  ┌─ Configuración ─────────────────────────────────────────────────┐   │
 │  │ Nombre: [myservice    ] Prefijo: [myservice] URL: [          ]  │   │
 │  │ Framework: [FastMCP ▼]  Ambiente: [Production ▼]                │   │
+│  │ [✓] Descargar como ZIP                                          │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
 │  [Cancelar]                                    [Generar Servidor MCP]   │
@@ -285,13 +351,89 @@ openapi-to-mcp gui ./specs/large-api.yaml --port 8080
 
 **Características de la GUI:**
 
+- **Carga flexible**: Archivo local o URL remota
 - **Vista Lista/Tags**: Alternar entre vista plana y agrupada por tags
 - **Búsqueda**: Filtrar endpoints en tiempo real
 - **Patrones rápidos**: Agregar múltiples endpoints con un patrón glob
 - **Drag & Drop**: Arrastrar endpoints entre listas
 - **Doble clic**: Mover un endpoint rápidamente
 - **Configuración**: Ajustar nombre, prefijo, URL, framework y ambiente
-- **Preview**: Ver cuántos endpoints se incluirán
+- **Descarga ZIP**: Obtener el servidor generado como archivo comprimido
+- **URLs de ejemplo**: Cargar rápidamente APIs populares (Petstore, GitHub)
+
+---
+
+## Despliegue Docker
+
+### Construcción de imagen
+
+```bash
+# Construir la imagen
+docker build -t openapi-to-mcp .
+
+# Ejecutar el contenedor
+docker run -p 5000:5000 openapi-to-mcp
+```
+
+### Docker Compose
+
+```bash
+# Iniciar el servicio
+docker-compose up -d
+
+# Ver logs
+docker-compose logs -f
+
+# Detener
+docker-compose down
+```
+
+**docker-compose.yml:**
+
+```yaml
+version: '3.8'
+
+services:
+  openapi-to-mcp:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - WORKERS=2
+      - THREADS=4
+    volumes:
+      - mcp-output:/app/output
+    restart: unless-stopped
+
+volumes:
+  mcp-output:
+```
+
+### Variables de entorno Docker
+
+| Variable | Descripción | Default |
+|----------|-------------|---------|
+| `PORT` | Puerto del servidor | 5000 |
+| `OUTPUT_DIR` | Directorio de salida | /app/output |
+| `WORKERS` | Workers de gunicorn | 2 |
+| `THREADS` | Threads por worker | 4 |
+
+### Producción con Nginx
+
+```nginx
+server {
+    listen 80;
+    server_name openapi-mcp.example.com;
+
+    location / {
+        proxy_pass http://localhost:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
 
 ---
 
@@ -335,35 +477,6 @@ API de bajo nivel con más control. Para casos avanzados.
 openapi-to-mcp generate api.yaml -n myservice --mcp-framework mcp
 ```
 
-**Código generado:**
-
-```python
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-
-server = Server("myservice")
-
-TOOLS = [
-    Tool(
-        name="myservice_list_users",
-        description="Listar usuarios",
-        inputSchema={...}
-    )
-]
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    handler = TOOL_HANDLERS.get(name)
-    result = await handler(arguments)
-    return [TextContent(type="text", text=json.dumps(result))]
-
-async def main():
-    async with stdio_server() as (read, write):
-        await server.run(read, write, server.create_initialization_options())
-
-asyncio.run(main())
-```
-
 **Comparación:**
 
 | Característica | FastMCP | MCP Estándar |
@@ -400,17 +513,6 @@ retry:
 
 auth:
   type: bearer  # none, api_key, bearer, basic, oauth2
-  # Para API Key:
-  # type: api_key
-  # header_name: X-API-Key
-
-  # Para OAuth2:
-  # type: oauth2
-  # token_url: https://auth.example.com/token
-  # scope: read write
-
-headers:
-  User-Agent: MCP-Server/1.0
 ```
 
 ### Variables de entorno
@@ -425,10 +527,6 @@ ENVIRONMENT=production
 # Autenticación
 API_KEY=your_api_key
 AUTH_TOKEN=your_bearer_token
-AUTH_USERNAME=username
-AUTH_PASSWORD=password
-OAUTH_CLIENT_ID=client_id
-OAUTH_CLIENT_SECRET=client_secret
 ```
 
 ---
@@ -441,24 +539,14 @@ Genera servidores para múltiples microservicios:
 # batch-config.yaml
 output_dir: ./output
 
-global:
-  environment: production
-  log_level: INFO
-
 services:
   - name: users
     spec: ./specs/users-api.yaml
     base_url: https://users.api.com
-    prefix: users
 
   - name: orders
     spec: ./specs/orders-api.yaml
     base_url: https://orders.api.com
-    prefix: orders
-
-  - name: inventory
-    spec: ./specs/inventory-api.yaml
-    base_url: https://inventory.api.com
 ```
 
 ```bash
@@ -482,30 +570,6 @@ openapi-to-mcp batch ./batch-config.yaml
         "BASE_URL": "https://api.enterprise.com/v2",
         "AUTH_TOKEN": "your_token"
       }
-    }
-  }
-}
-```
-
-### Múltiples servidores
-
-```json
-{
-  "mcpServers": {
-    "users": {
-      "command": "python",
-      "args": ["-m", "src.server"],
-      "cwd": "/path/to/mcp_server_users"
-    },
-    "orders": {
-      "command": "python",
-      "args": ["-m", "src.server"],
-      "cwd": "/path/to/mcp_server_orders"
-    },
-    "inventory": {
-      "command": "python",
-      "args": ["-m", "src.server"],
-      "cwd": "/path/to/mcp_server_inventory"
     }
   }
 }
@@ -537,6 +601,7 @@ openapi-to-mcp batch ./batch-config.yaml
 │  - Filtrado por patrones CLI                                    │
 │  - Selección interactiva                                        │
 │  - Selección via GUI web                                        │
+│  - Carga desde archivo o URL                                    │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -545,10 +610,6 @@ openapi-to-mcp batch ./batch-config.yaml
               ▼                               ▼
 ┌─────────────────────────┐     ┌─────────────────────────┐
 │    Tool Transformer     │     │  Resource Transformer   │
-│                         │     │                         │
-│ - Operaciones → Tools   │     │ - Schemas → Resources   │
-│ - Parámetros → Schema   │     │ - Endpoints GET → Docs  │
-│ - Security → Auth       │     │ - API Info → Resource   │
 └─────────────────────────┘     └─────────────────────────┘
               │                               │
               └───────────────┬───────────────┘
@@ -556,44 +617,19 @@ openapi-to-mcp batch ./batch-config.yaml
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    MCP Server Generator                          │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │  server.py   │  │ http_client  │  │    auth.py   │          │
-│  │              │  │     .py      │  │              │          │
-│  │ FastMCP or   │  │ - Resilient  │  │ - API Key    │          │
-│  │ MCP estándar │  │ - Retries    │  │ - Bearer     │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │  config.py   │  │ Dockerfile   │  │  README.md   │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    MCP Server Generado                           │
-│                                                                  │
-│  mcp_server_myservice/                                          │
-│  ├── src/                                                        │
-│  │   ├── server.py      # Servidor MCP                          │
-│  │   ├── http_client.py # Cliente HTTP resiliente               │
-│  │   ├── auth.py        # Autenticación                         │
-│  │   ├── config.py      # Configuración                         │
-│  │   └── schemas.py     # Schemas extraídos                     │
-│  ├── config/config.yaml                                          │
-│  ├── requirements.txt                                            │
-│  ├── Dockerfile                                                  │
-│  └── README.md                                                   │
+│  - Genera código server.py (FastMCP o MCP)                      │
+│  - Crea http_client.py, auth.py, config.py                      │
+│  - Genera requirements.txt, Dockerfile, README                  │
+│  - Opcionalmente crea ZIP para descarga                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Estructura del proyecto generador
+### Estructura del proyecto
 
 ```
 openapi-to-mcp-generator/
 ├── src/
 │   └── openapi_to_mcp/
-│       ├── __init__.py
 │       ├── models.py              # Modelos de datos
 │       ├── cli.py                 # Interfaz de comandos
 │       ├── endpoint_selector.py   # Selector de endpoints
@@ -607,13 +643,16 @@ openapi-to-mcp-generator/
 │       └── gui/                   # Interfaz web
 │           ├── web_app.py
 │           ├── templates/
-│           │   └── index.html
+│           │   ├── index.html     # Selector de endpoints
+│           │   └── upload.html    # Página de carga
 │           └── static/
 │               ├── style.css
 │               └── app.js
+├── Dockerfile
+├── docker-compose.yml
+├── docker-entrypoint.sh
 ├── examples/
 ├── tests/
-├── output/                        # Servidores generados
 └── pyproject.toml
 ```
 
@@ -640,14 +679,6 @@ openapi-to-mcp-generator/
 | `header: X-Custom` | `{"x_custom": {"type": "string", ...}}` |
 | `requestBody` | `{"body": {"type": "object", ...}}` |
 
-### Schemas → Resources
-
-| OpenAPI Schema | MCP Resource URI |
-|----------------|------------------|
-| `#/components/schemas/User` | `prefix://schemas/user` |
-| `GET /users` endpoint | `prefix://entities/users` |
-| API Documentation | `prefix://documentation/api-info` |
-
 ---
 
 ## Ejemplos
@@ -664,59 +695,31 @@ from openapi_to_mcp import (
     MCPFramework,
     EndpointFilter,
 )
-from openapi_to_mcp.endpoint_selector import EndpointSelector
 
 # 1. Parsear especificación
 parser = OpenAPIParser()
 spec = parser.parse("api.yaml")
 
-print(f"API: {spec.title} v{spec.version}")
-print(f"Endpoints totales: {parser.get_operation_count(spec)}")
-
-# 2. Filtrar endpoints (opcional)
-selector = EndpointSelector(spec)
-all_endpoints = selector.get_all_endpoints()
-
-# Filtrar por patrones
+# 2. Filtrar endpoints
 endpoint_filter = EndpointFilter(
     include_patterns=["/users/*", "/orders/*"],
     exclude_patterns=["/internal/*"]
 )
 
-# O selección explícita
-endpoint_filter = EndpointFilter(
-    selected_endpoints=["GET /users", "POST /users", "GET /users/{id}"]
-)
-
-# 3. Transformar a Tools
+# 3. Transformar y generar
 transformer = ToolTransformer(service_prefix="myapi")
 tools = transformer.transform(spec, endpoint_filter=endpoint_filter)
 
-print(f"Tools generadas: {len(tools)}")
-
-# 4. Transformar a Resources
-resource_transformer = ResourceTransformer(service_prefix="myapi")
-resources = resource_transformer.transform(spec, tools)
-
-# 5. Generar servidor
 config = MCPServerConfig(
     service_name="my_service",
-    service_prefix="myapi",
-    base_url="https://api.example.com",
     mcp_framework=MCPFramework.FASTMCP,
-    environment="production",
 )
 
 generator = MCPServerGenerator(output_dir="./output")
 result = generator.generate(spec, tools, resources, config)
-
-if result.success:
-    print(f"Servidor generado en: {result.output_path}")
-    print(f"Tools: {len(result.tools_generated)}")
-    print(f"Resources: {len(result.resources_generated)}")
 ```
 
-### Otros comandos útiles
+### Comandos CLI útiles
 
 ```bash
 # Validar especificación OpenAPI
@@ -727,6 +730,9 @@ openapi-to-mcp preview ./api.yaml --service-prefix myapi
 
 # Modo verbose para debugging
 openapi-to-mcp -v generate ./api.yaml -n myservice
+
+# Iniciar servidor web standalone
+openapi-to-mcp serve --port 8080
 ```
 
 ---
@@ -735,7 +741,7 @@ openapi-to-mcp -v generate ./api.yaml -n myservice
 
 ### Limitaciones conocidas
 
-1. **OAuth2 interactivo**: Flujos que requieren navegador (authorization_code) necesitan configuración manual
+1. **OAuth2 interactivo**: Flujos que requieren navegador necesitan configuración manual
 2. **WebSockets/SSE**: Streaming no soportado actualmente
 3. **File uploads**: Multipart form-data requiere manejo especial
 4. **GraphQL**: No soportado, solo REST
@@ -746,19 +752,6 @@ openapi-to-mcp -v generate ./api.yaml -n myservice
 2. **Documenta**: Incluye `summary` y `description` en cada operación
 3. **Versiona**: Usa prefijos de versión (`users_v2_*`) cuando las APIs evolucionan
 4. **Filtra**: No expongas endpoints internos o de debug a los LLMs
-
-### Monitoreo
-
-```bash
-# Logs detallados
-LOG_LEVEL=DEBUG python -m src.server
-
-# Los logs incluyen:
-# - Invocaciones de tools
-# - Tiempos de respuesta
-# - Errores y reintentos
-# - Correlation IDs
-```
 
 ---
 
