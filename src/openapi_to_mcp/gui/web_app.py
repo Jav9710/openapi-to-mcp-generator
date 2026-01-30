@@ -181,6 +181,11 @@ def register_routes(app: Flask):
             selector = EndpointSelector(spec, include_deprecated=True)
             stats = selector.get_stats()
 
+            # Validación rápida
+            from ..validators import OpenAPIValidator
+            validator = OpenAPIValidator(check_best_practices=True)
+            validation = validator.validate_file(str(temp_path))
+
             return jsonify({
                 "success": True,
                 "session_id": session_id,
@@ -190,6 +195,12 @@ def register_routes(app: Flask):
                     "description": spec.description,
                     "endpoints_count": stats["total"],
                     "tags": list(stats["by_tag"].keys()),
+                },
+                "validation": {
+                    "valid": validation.valid,
+                    "error_count": validation.error_count,
+                    "warning_count": validation.warning_count,
+                    "suggestion_count": len(validation.suggestions),
                 },
                 "redirect_url": f"/selector?session={session_id}",
             })
@@ -280,6 +291,11 @@ def register_routes(app: Flask):
             selector = EndpointSelector(spec, include_deprecated=True)
             stats = selector.get_stats()
 
+            # Validación rápida
+            from ..validators import OpenAPIValidator
+            validator = OpenAPIValidator(check_best_practices=True)
+            validation = validator.validate_file(str(temp_path))
+
             return jsonify({
                 "success": True,
                 "session_id": session_id,
@@ -289,6 +305,12 @@ def register_routes(app: Flask):
                     "description": spec.description,
                     "endpoints_count": stats["total"],
                     "tags": list(stats["by_tag"].keys()),
+                },
+                "validation": {
+                    "valid": validation.valid,
+                    "error_count": validation.error_count,
+                    "warning_count": validation.warning_count,
+                    "suggestion_count": len(validation.suggestions),
                 },
                 "redirect_url": f"/selector?session={session_id}",
             })
@@ -364,6 +386,123 @@ def register_routes(app: Flask):
             "security_schemes": list(spec.security_schemes.keys()),
         })
 
+    @app.route("/api/validate")
+    def validate_spec():
+        """Valida la especificación OpenAPI cargada y retorna diagnósticos."""
+        from ..validators import OpenAPIValidator
+
+        session_id = request.args.get("session")
+        spec_path = None
+
+        if session_id and session_id in _session_specs:
+            spec_path = _session_specs[session_id].get("spec_path")
+        elif _global_spec_path:
+            spec_path = _global_spec_path
+
+        if not spec_path:
+            return jsonify({"error": "No hay spec cargado"}), 400
+
+        validator = OpenAPIValidator(check_best_practices=True)
+        result = validator.validate_file(spec_path)
+
+        return jsonify(result.to_dict())
+
+    @app.route("/api/validate-content", methods=["POST"])
+    def validate_content():
+        """Valida contenido de especificación sin cargarlo."""
+        from ..validators import OpenAPIValidator
+
+        data = request.json
+        content = data.get("content", "")
+        format_type = data.get("format", "yaml")
+
+        if not content:
+            return jsonify({"error": "No se proporcionó contenido"}), 400
+
+        validator = OpenAPIValidator(check_best_practices=True)
+        result = validator.validate_content(content, format_type)
+
+        return jsonify(result.to_dict())
+
+    @app.route("/api/stats")
+    def get_stats():
+        """Retorna estadísticas detalladas de la especificación."""
+        from ..endpoint_selector import EndpointSelector
+
+        spec = _get_current_spec(request)
+        if not spec:
+            return jsonify({"error": "No hay spec cargado"}), 400
+
+        selector = EndpointSelector(spec, include_deprecated=True)
+        endpoints = selector.get_all_endpoints()
+        stats = selector.get_stats()
+
+        # Estadísticas por método HTTP
+        methods_count = {"GET": 0, "POST": 0, "PUT": 0, "PATCH": 0, "DELETE": 0, "HEAD": 0, "OPTIONS": 0}
+        for ep in endpoints:
+            method = ep.method.upper()
+            if method in methods_count:
+                methods_count[method] += 1
+
+        # Estadísticas por tag
+        tags_count = {}
+        for ep in endpoints:
+            for tag in ep.tags:
+                tags_count[tag] = tags_count.get(tag, 0) + 1
+
+        # Endpoints deprecated
+        deprecated_count = sum(1 for ep in endpoints if ep.deprecated)
+
+        # Parámetros más comunes
+        param_types = {"path": 0, "query": 0, "header": 0, "body": 0}
+        for ep in endpoints:
+            for param in ep.parameters:
+                param_in = param.get("in", "").lower()
+                if param_in in param_types:
+                    param_types[param_in] += 1
+            if ep.request_body:
+                param_types["body"] += 1
+
+        # Security schemes
+        security_schemes = list(spec.security_schemes.keys()) if spec.security_schemes else []
+
+        return jsonify({
+            "total_endpoints": len(endpoints),
+            "total_paths": stats.get("total_paths", len(set(ep.path for ep in endpoints))),
+            "methods": methods_count,
+            "methods_chart": [
+                {"method": k, "count": v, "color": _get_method_color(k)}
+                for k, v in methods_count.items() if v > 0
+            ],
+            "tags": tags_count,
+            "tags_chart": [
+                {"tag": k, "count": v}
+                for k, v in sorted(tags_count.items(), key=lambda x: -x[1])[:10]
+            ],
+            "deprecated_count": deprecated_count,
+            "param_types": param_types,
+            "security_schemes": security_schemes,
+            "api_info": {
+                "title": spec.title,
+                "version": spec.version,
+                "description": spec.description,
+                "servers": [s.url for s in spec.servers] if spec.servers else [],
+            }
+        })
+
+    def _get_method_color(method):
+        """Retorna color para método HTTP."""
+        colors = {
+            "GET": "#22c55e",
+            "POST": "#3b82f6",
+            "PUT": "#f59e0b",
+            "PATCH": "#8b5cf6",
+            "DELETE": "#ef4444",
+            "HEAD": "#6b7280",
+            "OPTIONS": "#6b7280",
+        }
+        return colors.get(method.upper(), "#6b7280")
+
     @app.route("/api/filter", methods=["POST"])
     def filter_endpoints():
         """Filtra endpoints por patrones."""
@@ -384,6 +523,71 @@ def register_routes(app: Flask):
             "endpoints": [ep.to_dict() for ep in filtered],
             "total": len(filtered),
         })
+
+    @app.route("/api/preview", methods=["POST"])
+    def preview_code():
+        """Genera preview del código MCP sin guardarlo."""
+        from ..endpoint_selector import EndpointSelector
+        from ..generators.server_generator import MCPServerGenerator
+        from ..models import MCPServerConfig, MCPFramework, EndpointFilter
+        from ..transformers.tool_transformer import ToolTransformer
+        from ..transformers.resource_transformer import ResourceTransformer
+        import io
+
+        spec = _get_current_spec(request)
+        if not spec:
+            return jsonify({"success": False, "error": "No hay spec cargado"}), 400
+
+        data = request.json
+        selected_endpoints = data.get("selected", [])
+        service_name = data.get("service_name", "api")
+        service_prefix = data.get("service_prefix", service_name)
+        base_url = data.get("base_url") or spec.get_base_url()
+        mcp_framework = data.get("mcp_framework", "fastmcp")
+
+        try:
+            # Crear filtro
+            endpoint_filter = EndpointFilter(selected_endpoints=selected_endpoints)
+
+            # Configuración
+            framework = MCPFramework.FASTMCP if mcp_framework == "fastmcp" else MCPFramework.MCP
+            config = MCPServerConfig(
+                service_name=service_name,
+                service_prefix=service_prefix,
+                base_url=base_url,
+                mcp_framework=framework,
+            )
+
+            # Transformar
+            tool_transformer = ToolTransformer(
+                service_prefix=service_prefix,
+                base_url=base_url,
+            )
+            tools = tool_transformer.transform(spec, endpoint_filter=endpoint_filter)
+
+            resource_transformer = ResourceTransformer(service_prefix=service_prefix)
+            resources = resource_transformer.transform(spec)
+
+            # Generar código en memoria
+            generator = MCPServerGenerator(output_dir=None)
+            code_preview = generator.generate_preview(spec, tools, resources, config)
+
+            return jsonify({
+                "success": True,
+                "files": code_preview,
+                "stats": {
+                    "tools_count": len(tools),
+                    "resources_count": len(resources),
+                    "files_count": len(code_preview),
+                }
+            })
+
+        except Exception as e:
+            logger.exception("Error en preview")
+            return jsonify({
+                "success": False,
+                "error": f"Error generando preview: {str(e)}"
+            }), 500
 
     @app.route("/api/generate", methods=["POST"])
     def generate_server():

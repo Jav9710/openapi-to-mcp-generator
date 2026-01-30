@@ -141,6 +141,111 @@ class MCPServerGenerator:
                 warnings=warnings,
             )
 
+    def generate_preview(
+        self,
+        spec: OpenAPISpec,
+        tools: list[MCPTool],
+        resources: list[MCPResource],
+        config: MCPServerConfig,
+    ) -> dict[str, str]:
+        """
+        Genera preview del código sin escribir archivos.
+
+        Args:
+            spec: Especificación OpenAPI parseada
+            tools: Lista de tools transformadas
+            resources: Lista de resources transformados
+            config: Configuración del servidor
+
+        Returns:
+            Diccionario con nombre de archivo como clave y contenido como valor
+        """
+        files = {}
+
+        try:
+            # Generar servidor principal (el más importante)
+            files["src/server.py"] = self._render_server_template(tools, resources, config, spec)
+
+            # Requirements
+            files["requirements.txt"] = self._generate_requirements_code_preview(config)
+
+            # README básico con información del servidor
+            readme_content = f"""# MCP Server: {config.service_name}
+
+Servidor MCP generado automáticamente desde OpenAPI.
+
+## API
+- **Título**: {spec.title}
+- **Versión**: {spec.version}
+- **Base URL**: {config.base_url}
+
+## Tools Generadas ({len(tools)})
+{chr(10).join(f'- `{t.name}`: {t.description[:80]}...' if len(t.description) > 80 else f'- `{t.name}`: {t.description}' for t in tools[:10])}
+{'...' if len(tools) > 10 else ''}
+
+## Resources Generados ({len(resources)})
+{chr(10).join(f'- `{r.uri}`: {r.description[:60]}...' if len(r.description) > 60 else f'- `{r.uri}`: {r.description}' for r in resources[:5])}
+{'...' if len(resources) > 5 else ''}
+
+## Instalación
+
+```bash
+pip install -r requirements.txt
+```
+
+## Uso
+
+```bash
+python -m src.server
+```
+
+---
+*Generado con OpenAPI-to-MCP Generator*
+"""
+            files["README.md"] = readme_content
+
+            # Config básico
+            config_content = f'''"""
+Configuración del servidor MCP.
+"""
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Configuración del servidor
+SERVICE_NAME = "{config.service_name}"
+BASE_URL = os.getenv("API_BASE_URL", "{config.base_url}")
+API_KEY = os.getenv("API_KEY", "")
+
+# Logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+'''
+            files["src/config.py"] = config_content
+
+        except Exception as e:
+            logger.error(f"Error generando preview: {e}", exc_info=True)
+            files["error.txt"] = f"Error generando código: {str(e)}"
+
+        return files
+
+    def _generate_requirements_code_preview(self, config: MCPServerConfig) -> str:
+        """Genera requirements.txt en memoria."""
+        if config.mcp_framework == MCPFramework.FASTMCP:
+            return """# FastMCP Server Dependencies
+fastmcp>=0.1.0
+httpx>=0.25.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+"""
+        else:
+            return """# MCP Server Dependencies
+mcp>=0.1.0
+httpx>=0.25.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+"""
+
     def _create_project_structure(self, service_name: str) -> Path:
         """Crea la estructura de directorios del proyecto."""
         server_dir = self.output_dir / f"mcp_server_{service_name}"
