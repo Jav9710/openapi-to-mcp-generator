@@ -45,6 +45,29 @@ _standalone_mode = False
 _session_specs = {}
 
 
+def create_standalone_app():
+    """
+    Crea la aplicación Flask para modo standalone (Docker/Gunicorn).
+
+    Lee la configuración de variables de entorno:
+    - OUTPUT_DIR: Directorio de salida (default: /app/output)
+    - PORT: Puerto del servidor (solo informativo, gunicorn lo maneja)
+
+    Returns:
+        Aplicación Flask configurada para modo standalone
+    """
+    output_dir = os.environ.get("OUTPUT_DIR", "/app/output")
+
+    logger.info(f"Creating standalone app with output_dir={output_dir}")
+
+    return create_app(
+        spec=None,
+        spec_path=None,
+        output_dir=output_dir,
+        standalone=True,
+    )
+
+
 def create_app(
     spec=None,
     spec_path: str = None,

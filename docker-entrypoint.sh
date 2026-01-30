@@ -13,46 +13,20 @@ echo "  Output Directory: $OUTPUT_DIR"
 echo "  Workers: $WORKERS"
 echo "  Threads: $THREADS"
 
+# Ensure output directory exists
+mkdir -p "$OUTPUT_DIR"
+
+# Set environment variables for the app
+export OUTPUT_DIR
+export PORT
+
 # Run with gunicorn for production
-exec python -c "
-import sys
-sys.path.insert(0, '/app')
-
-from src.openapi_to_mcp.gui.web_app import create_app
-
-app = create_app(
-    spec=None,
-    spec_path=None,
-    output_dir='${OUTPUT_DIR}',
-    standalone=True
-)
-
-if __name__ == '__main__':
-    from gunicorn.app.base import BaseApplication
-
-    class StandaloneApplication(BaseApplication):
-        def __init__(self, app, options=None):
-            self.options = options or {}
-            self.application = app
-            super().__init__()
-
-        def load_config(self):
-            for key, value in self.options.items():
-                if key in self.cfg.settings and value is not None:
-                    self.cfg.set(key.lower(), value)
-
-        def load(self):
-            return self.application
-
-    options = {
-        'bind': '0.0.0.0:${PORT}',
-        'workers': ${WORKERS},
-        'threads': ${THREADS},
-        'timeout': 120,
-        'accesslog': '-',
-        'errorlog': '-',
-        'capture_output': True,
-    }
-
-    StandaloneApplication(app, options).run()
-"
+exec gunicorn \
+    --bind "0.0.0.0:${PORT}" \
+    --workers "${WORKERS}" \
+    --threads "${THREADS}" \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    --capture-output \
+    "src.openapi_to_mcp.gui.web_app:create_standalone_app()"
