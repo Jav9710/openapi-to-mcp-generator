@@ -689,15 +689,20 @@ def register_routes(app: Flask):
         # Endpoints deprecated
         deprecated_count = sum(1 for ep in endpoints if ep.deprecated)
 
-        # Parámetros más comunes
+        # Parámetros más comunes (obtenidos directamente del spec)
         param_types = {"path": 0, "query": 0, "header": 0, "body": 0}
-        for ep in endpoints:
-            for param in ep.parameters:
-                param_in = param.get("in", "").lower()
-                if param_in in param_types:
-                    param_types[param_in] += 1
-            if ep.request_body:
-                param_types["body"] += 1
+        for path, operations in spec.paths.items():
+            for method, operation in operations.items():
+                if method.lower() in ("get", "post", "put", "patch", "delete", "head", "options"):
+                    # Contar parámetros
+                    params = operation.get("parameters", [])
+                    for param in params:
+                        param_in = param.get("in", "").lower()
+                        if param_in in param_types:
+                            param_types[param_in] += 1
+                    # Contar request body
+                    if operation.get("requestBody"):
+                        param_types["body"] += 1
 
         # Security schemes
         security_schemes = list(spec.security_schemes.keys()) if spec.security_schemes else []
