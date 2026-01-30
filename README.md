@@ -757,28 +757,28 @@ openapi-to-mcp serve --port 8080
 
 ## 🗺️ Roadmap
 
-### Fase 1: Mejoras de Experiencia de Usuario (v1.1)
+### Fase 1: Mejoras de Experiencia de Usuario (v1.1) ✅
 
 #### 🌙 Modo Oscuro/Claro
-- [ ] Toggle de tema en la interfaz web
-- [ ] Persistencia de preferencia en localStorage
-- [ ] Detección automática de preferencia del sistema
+- [x] Toggle de tema en la interfaz web
+- [x] Persistencia de preferencia en localStorage
+- [x] Detección automática de preferencia del sistema
 
 #### ✅ Validación en Tiempo Real
-- [ ] Validación del OpenAPI spec mientras se carga
-- [ ] Indicadores visuales de errores y warnings
-- [ ] Sugerencias de corrección automática
-- [ ] Panel de diagnóstico con detalles de problemas
+- [x] Validación del OpenAPI spec mientras se carga
+- [x] Indicadores visuales de errores y warnings
+- [x] Sugerencias de corrección automática
+- [x] Panel de diagnóstico con detalles de problemas
 
 #### 👁️ Preview en Vivo
-- [ ] Vista previa del código MCP generado antes de descargar
-- [ ] Syntax highlighting para Python
-- [ ] Navegación por archivos generados
+- [x] Vista previa del código MCP generado antes de descargar
+- [x] Syntax highlighting para Python
+- [x] Navegación por archivos generados
 - [ ] Diff viewer para comparar versiones
 
 #### 📊 Estadísticas Avanzadas
-- [ ] Dashboard con métricas de uso
-- [ ] Gráficos de endpoints más utilizados
+- [x] Dashboard con métricas de uso
+- [x] Gráficos de endpoints más utilizados
 - [ ] Tiempo promedio de generación
 - [ ] Historial de especificaciones procesadas
 
