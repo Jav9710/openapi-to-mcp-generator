@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -86,6 +86,7 @@ class MCPServerGenerator:
         tools: list[MCPTool],
         resources: list[MCPResource],
         config: MCPServerConfig,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> GenerationResult:
         """
         Genera el servidor MCP completo.
@@ -95,6 +96,7 @@ class MCPServerGenerator:
             tools: Lista de tools transformadas
             resources: Lista de resources transformados
             config: Configuración del servidor
+            progress_callback: Callback opcional (description, current, total) para reportar progreso
 
         Returns:
             GenerationResult con información de la generación
@@ -102,21 +104,56 @@ class MCPServerGenerator:
         warnings = []
         errors = []
 
+        def report_progress(description: str, step: int, total: int):
+            """Helper para reportar progreso."""
+            if progress_callback:
+                progress_callback(description, step, total)
+
+        total_steps = 10
+        current_step = 0
+
         try:
             # Crear estructura de directorios
+            current_step += 1
+            report_progress("Creando estructura de proyecto", current_step, total_steps)
             server_dir = self._create_project_structure(config.service_name)
 
             # Generar archivos
+            current_step += 1
+            report_progress("Generando servidor MCP", current_step, total_steps)
             self._generate_server_file(server_dir, tools, resources, config, spec)
+
+            current_step += 1
+            report_progress("Generando cliente HTTP", current_step, total_steps)
             self._generate_http_client(server_dir, config)
+
+            current_step += 1
+            report_progress("Generando módulo de autenticación", current_step, total_steps)
             self._generate_auth_module(server_dir, spec.security_schemes, config)
+
+            current_step += 1
+            report_progress("Generando configuración", current_step, total_steps)
             self._generate_config_file(server_dir, config)
+
+            current_step += 1
+            report_progress("Generando requirements.txt", current_step, total_steps)
             self._generate_requirements(server_dir, config)
+
+            current_step += 1
+            report_progress("Generando pyproject.toml", current_step, total_steps)
             self._generate_pyproject(server_dir, config)
+
+            current_step += 1
+            report_progress("Generando Dockerfile", current_step, total_steps)
             self._generate_dockerfile(server_dir, config)
+
+            current_step += 1
+            report_progress("Generando documentación", current_step, total_steps)
             self._generate_readme(server_dir, spec, tools, resources, config)
 
             # Generar schemas como módulo
+            current_step += 1
+            report_progress("Generando módulo de schemas", current_step, total_steps)
             self._generate_schemas_module(server_dir, spec.components_schemas)
 
             logger.info(f"Servidor MCP generado exitosamente en: {server_dir}")

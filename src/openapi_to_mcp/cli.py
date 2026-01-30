@@ -210,15 +210,22 @@ def generate(
             console.print(f"  [green]✓[/green] Resources generados: {len(resources)}")
 
             # 7. Generar código del servidor
-            task = progress.add_task("Generando código del servidor MCP...", total=None)
+            task = progress.add_task("Generando código del servidor MCP...", total=100)
+
+            def progress_callback(description: str, current: int, total: int):
+                """Callback para actualizar la progress bar."""
+                percentage = int((current / total) * 100)
+                progress.update(task, completed=percentage, description=f"[cyan]{description}[/cyan]")
+
             generator = MCPServerGenerator(output_dir=output)
             result = generator.generate(
                 spec=spec,
                 tools=tools,
                 resources=resources,
                 config=config,
+                progress_callback=progress_callback,
             )
-            progress.update(task, completed=True)
+            progress.update(task, completed=100, description="[green]Código generado exitosamente[/green]")
 
         # Mostrar resultado
         if result.success:
