@@ -20,6 +20,7 @@ import threading
 import uuid
 import webbrowser
 import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,10 @@ _standalone_mode = False
 
 # Almacenamiento de specs por sesión (para modo standalone)
 _session_specs = {}
+
+# Configuración de cleanup
+SESSION_TIMEOUT_HOURS = 2  # Limpiar sesiones después de 2 horas
+CLEANUP_INTERVAL_MINUTES = 15  # Ejecutar cleanup cada 15 minutos
 
 
 def create_standalone_app():
@@ -108,7 +113,56 @@ def create_app(
     # Registrar rutas
     register_routes(app)
 
+    # Iniciar cleanup automático de sesiones en modo standalone
+    if standalone or (spec is None):
+        start_background_cleanup()
+
     return app
+
+
+def cleanup_old_sessions():
+    """
+    Limpia sesiones y archivos temporales viejos.
+    Ejecuta en background cada CLEANUP_INTERVAL_MINUTES.
+    """
+    import time
+
+    while True:
+        try:
+            time.sleep(CLEANUP_INTERVAL_MINUTES * 60)
+
+            now = datetime.now()
+            timeout = timedelta(hours=SESSION_TIMEOUT_HOURS)
+            sessions_to_delete = []
+
+            for session_id, session_data in _session_specs.items():
+                created_at = session_data.get("created_at")
+                if created_at and (now - created_at) > timeout:
+                    sessions_to_delete.append(session_id)
+
+            # Limpiar sesiones viejas
+            for session_id in sessions_to_delete:
+                session_data = _session_specs.get(session_id)
+                if session_data:
+                    # Limpiar directorio temporal si existe
+                    temp_dir = session_data.get("temp_dir")
+                    if temp_dir and Path(temp_dir).exists():
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        logger.info(f"Cleaned up session {session_id} temp dir: {temp_dir}")
+
+                    # Eliminar de memoria
+                    del _session_specs[session_id]
+                    logger.info(f"Removed expired session: {session_id}")
+
+        except Exception as e:
+            logger.exception(f"Error in session cleanup: {e}")
+
+
+def start_background_cleanup():
+    """Inicia el thread de cleanup en background."""
+    cleanup_thread = threading.Thread(target=cleanup_old_sessions, daemon=True)
+    cleanup_thread.start()
+    logger.info(f"Started background session cleanup (interval: {CLEANUP_INTERVAL_MINUTES}min, timeout: {SESSION_TIMEOUT_HOURS}h)")
 
 
 def register_routes(app: Flask):
@@ -197,6 +251,7 @@ def register_routes(app: Flask):
                 "spec_path": str(temp_path),
                 "temp_dir": temp_dir,
                 "filename": file.filename,
+                "created_at": datetime.now(),
             }
 
             # Obtener estadísticas
@@ -307,6 +362,7 @@ def register_routes(app: Flask):
                 "temp_dir": temp_dir,
                 "filename": filename,
                 "source_url": url,
+                "created_at": datetime.now(),
             }
 
             # Obtener estadísticas
@@ -603,6 +659,7 @@ def register_routes(app: Flask):
             "filename": enriched_filename,
             "enriched_from": session_id,
             "raw_spec": enriched_spec,
+            "created_at": datetime.now(),
         }
 
         return jsonify({
@@ -813,6 +870,18 @@ def register_routes(app: Flask):
             generator = MCPServerGenerator(output_dir=temp_dir)
             code_preview = generator.generate_preview(spec, tools, resources, config)
 
+            # Programar cleanup del directorio temporal
+            def cleanup_preview_temp():
+                import time
+                time.sleep(300)  # 5 minutos - suficiente para que el cliente procese el response
+                if Path(temp_dir).exists():
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    logger.debug(f"Cleaned up preview temp dir: {temp_dir}")
+
+            cleanup_thread = threading.Thread(target=cleanup_preview_temp)
+            cleanup_thread.daemon = True
+            cleanup_thread.start()
+
             return jsonify({
                 "success": True,
                 "files": code_preview,
@@ -898,10 +967,11 @@ def register_routes(app: Flask):
                 zip_id = str(uuid.uuid4())[:8]
 
                 # Guardar referencia para descarga
-                _session_specs[f"zip_{zip_id}"] = {
+                    _session_specs[f"zip_{zip_id}"] = {
                     "output_path": result.output_path,
                     "temp_dir": temp_output,
                     "zip_filename": zip_filename,
+                    "created_at": datetime.now(),
                 }
 
                 return jsonify({
