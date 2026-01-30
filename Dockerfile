@@ -17,7 +17,7 @@ COPY src/ ./src/
 
 # Install the package with GUI dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir ".[gui]" && \
+    pip install --no-cache-dir ".[all]" && \
     pip install --no-cache-dir requests gunicorn
 
 # Stage 2: Runtime
