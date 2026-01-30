@@ -755,6 +755,224 @@ openapi-to-mcp serve --port 8080
 
 ---
 
+## 🗺️ Roadmap
+
+### Fase 1: Mejoras de Experiencia de Usuario (v1.1)
+
+#### 🌙 Modo Oscuro/Claro
+- [ ] Toggle de tema en la interfaz web
+- [ ] Persistencia de preferencia en localStorage
+- [ ] Detección automática de preferencia del sistema
+
+#### ✅ Validación en Tiempo Real
+- [ ] Validación del OpenAPI spec mientras se carga
+- [ ] Indicadores visuales de errores y warnings
+- [ ] Sugerencias de corrección automática
+- [ ] Panel de diagnóstico con detalles de problemas
+
+#### 👁️ Preview en Vivo
+- [ ] Vista previa del código MCP generado antes de descargar
+- [ ] Syntax highlighting para Python
+- [ ] Navegación por archivos generados
+- [ ] Diff viewer para comparar versiones
+
+#### 📊 Estadísticas Avanzadas
+- [ ] Dashboard con métricas de uso
+- [ ] Gráficos de endpoints más utilizados
+- [ ] Tiempo promedio de generación
+- [ ] Historial de especificaciones procesadas
+
+---
+
+### Fase 2: Gestión de Especificaciones (v1.2)
+
+#### 📁 Administrador de Especificaciones OpenAPI
+- [ ] Biblioteca de especificaciones cargadas
+- [ ] Organización por proyectos/carpetas
+- [ ] Búsqueda y filtrado de especificaciones
+- [ ] Etiquetado y categorización
+- [ ] Favoritos y accesos rápidos
+
+#### 🔄 Versionado de Especificaciones
+Sistema completo de control de versiones para OpenAPI specs:
+
+| Característica | Descripción |
+|---------------|-------------|
+| **Historial de versiones** | Registro automático de cada versión cargada |
+| **Timeline visual** | Línea de tiempo interactiva con todas las versiones |
+| **Diff entre versiones** | Comparación visual de cambios entre versiones |
+| **Restaurar versiones** | Capacidad de volver a versiones anteriores |
+| **Notas de cambio** | Comentarios y descripciones por versión |
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  📋 Petstore API - Historial de Versiones                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ●───●───●───●───◉  (Timeline)                                  │
+│  v1  v2  v3  v4  v5                                             │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ v5 (actual) - 2024-01-15 14:32                          │   │
+│  │ ├─ 🔧 MCP generado: 2024-01-15 14:35                    │   │
+│  │ ├─ Endpoints: 24 (+3 desde v4)                          │   │
+│  │ └─ Nota: "Agregados endpoints de autenticación OAuth"   │   │
+│  ├─────────────────────────────────────────────────────────┤   │
+│  │ v4 - 2024-01-10 09:15                                   │   │
+│  │ ├─ 🔧 MCP generado: 2024-01-10 09:20                    │   │
+│  │ ├─ 🔧 MCP generado: 2024-01-12 16:45                    │   │
+│  │ ├─ Endpoints: 21                                        │   │
+│  │ └─ Nota: "Refactoring de rutas de usuarios"             │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  [Ver Diff v4 ↔ v5]  [Restaurar v4]  [Exportar Historial]      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### 🔧 Registro de Generaciones MCP
+- [ ] Indicador visual de versiones con MCP generado
+- [ ] Fecha y hora exacta de cada generación
+- [ ] Configuración utilizada en cada generación
+- [ ] Enlace de descarga del ZIP generado (si está disponible)
+- [ ] Estadísticas de generación (tools, resources, tiempo)
+
+---
+
+### Fase 3: Configuración Avanzada de MCP (v1.3)
+
+#### ⚙️ Zona de Configuración por Especificación
+Cada especificación tendrá su propia configuración de salida MCP:
+
+**Modo Editor (YAML/JSON):**
+```yaml
+# Configuración directa en formato YAML
+service_name: "petstore_api"
+mcp_framework: "fastmcp"
+output_format: "python"
+service_prefix: "petstore"
+generate_resources: true
+auth_config:
+  type: "bearer"
+  token_env: "PETSTORE_API_KEY"
+endpoint_filters:
+  include: ["/pets/*", "/store/*"]
+  exclude: ["/internal/*"]
+```
+
+**Modo GUI (Formulario visual):**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ⚙️ Configuración MCP - Petstore API                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Información General                                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ Nombre del servicio: [petstore_api_________]            │   │
+│  │ Prefijo:             [petstore_____________]            │   │
+│  │ Framework:           [FastMCP ▼]                        │   │
+│  │ Formato salida:      ○ Python  ○ TypeScript (futuro)    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  Autenticación                                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ Tipo:     [Bearer Token ▼]                              │   │
+│  │ Variable: [PETSTORE_API_KEY___]                         │   │
+│  │ □ Requerido para todos los endpoints                    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  Generación                                                     │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ ☑ Generar Resources                                     │   │
+│  │ ☑ Incluir validación de parámetros                      │   │
+│  │ ☑ Generar documentación inline                          │   │
+│  │ □ Modo estricto (fallar en warnings)                    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  [Modo Editor YAML]  [Guardar Config]  [Restaurar Defaults]    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- [ ] Toggle entre modo Editor y modo GUI
+- [ ] Validación de configuración en tiempo real
+- [ ] Perfiles de configuración reutilizables
+- [ ] Importar/Exportar configuraciones
+- [ ] Configuración heredada de plantillas
+
+---
+
+### Fase 4: Colaboración y Equipos (v2.0)
+
+#### 👥 Gestión de Usuarios
+- [ ] Sistema de autenticación (local/OAuth)
+- [ ] Roles y permisos (admin, editor, viewer)
+- [ ] Workspaces compartidos
+- [ ] Actividad de equipo en tiempo real
+
+#### 🔗 Integraciones
+- [ ] Webhooks para CI/CD
+- [ ] API REST para automatización
+- [ ] Integración con GitHub/GitLab
+- [ ] Sincronización con repositorios de specs
+- [ ] Notificaciones (Slack, Discord, Email)
+
+#### 📤 Export Avanzado
+- [ ] Generación de código TypeScript (MCP SDK oficial)
+- [ ] Templates personalizables
+- [ ] Plugins de exportación
+- [ ] Generación batch de múltiples specs
+
+---
+
+### Fase 5: Enterprise Features (v3.0)
+
+#### 🔒 Seguridad Avanzada
+- [ ] Auditoría de acciones
+- [ ] Encriptación de specs sensibles
+- [ ] SSO/SAML integration
+- [ ] Políticas de retención de datos
+
+#### 📈 Analytics y Monitoreo
+- [ ] Dashboard de administración
+- [ ] Métricas de uso por equipo
+- [ ] Alertas configurables
+- [ ] Reportes automáticos
+
+#### 🌐 Escalabilidad
+- [ ] Soporte multi-tenant
+- [ ] Balanceo de carga
+- [ ] Cache distribuido
+- [ ] Base de datos persistente (PostgreSQL/MongoDB)
+
+---
+
+### Backlog (Sin priorizar)
+
+| Feature | Descripción | Complejidad |
+|---------|-------------|-------------|
+| Importar desde Postman | Convertir colecciones Postman a OpenAPI | Media |
+| Importar desde Insomnia | Soporte para formato Insomnia | Media |
+| AI-assisted mapping | Sugerencias inteligentes para nombres de tools | Alta |
+| Playground integrado | Probar tools generados directamente | Alta |
+| CLI interactivo mejorado | TUI con rich/textual | Media |
+| Soporte GraphQL | Generar MCP desde schemas GraphQL | Alta |
+| Soporte gRPC | Generar MCP desde protobuf | Alta |
+| Mobile app | App iOS/Android para gestión | Alta |
+| VS Code extension | Extensión para editar specs | Media |
+| Rate limiting | Control de uso de API | Baja |
+
+---
+
+### Contribuir al Roadmap
+
+¿Tienes ideas para nuevas features?
+
+1. Abre un [Issue](https://github.com/tu-repo/openapi-to-mcp-generator/issues) con la etiqueta `enhancement`
+2. Describe el caso de uso y beneficios
+3. Si es posible, incluye mockups o diagramas
+4. Vota 👍 en features existentes para priorizar
+
+---
+
 ## Contribuir
 
 1. Fork el repositorio
