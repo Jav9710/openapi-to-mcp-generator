@@ -967,7 +967,7 @@ def register_routes(app: Flask):
                 zip_id = str(uuid.uuid4())[:8]
 
                 # Guardar referencia para descarga
-                    _session_specs[f"zip_{zip_id}"] = {
+                _session_specs[f"zip_{zip_id}"] = {
                     "output_path": result.output_path,
                     "temp_dir": temp_output,
                     "zip_filename": zip_filename,
