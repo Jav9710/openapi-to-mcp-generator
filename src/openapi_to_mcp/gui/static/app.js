@@ -1857,3 +1857,274 @@ function debounce(func, wait) {
         timeout = setTimeout(later, wait);
     };
 }
+
+// ================================
+// Configuration Export/Import
+// ================================
+
+// Export configuration button
+const exportConfigBtn = document.getElementById('exportConfigBtn');
+if (exportConfigBtn) {
+    exportConfigBtn.addEventListener('click', () => {
+        const selected = getSelectedEndpoints();
+
+        if (selected.length === 0) {
+            Toast.warning('No hay endpoints seleccionados para exportar');
+            return;
+        }
+
+        const metadata = {
+            spec_title: document.querySelector('.spec-title')?.textContent || 'API',
+            spec_version: document.querySelector('.spec-version')?.textContent || '1.0.0',
+            total_available: endpoints.length,
+            exported_from: 'web-gui'
+        };
+
+        try {
+            SelectionConfig.exportConfig(selected, metadata);
+            Toast.success(`Configuración exportada (${selected.length} endpoints)`);
+        } catch (error) {
+            Toast.error('Error exportando configuración: ' + error.message);
+        }
+    });
+}
+
+// Import configuration button
+const importConfigBtn = document.getElementById('importConfigBtn');
+const importConfigInput = document.getElementById('importConfigInput');
+
+if (importConfigBtn && importConfigInput) {
+    importConfigBtn.addEventListener('click', () => {
+        importConfigInput.click();
+    });
+
+    importConfigInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            const config = await SelectionConfig.importConfig(file);
+
+            // Apply selection
+            const importedEndpoints = config.selection.endpoints;
+
+            // Clear current selection
+            targetList.innerHTML = '';
+            updateSelectedCount();
+
+            // Add imported endpoints
+            let applied = 0;
+            importedEndpoints.forEach(key => {
+                const endpoint = endpoints.find(ep => ep.key === key);
+                if (endpoint) {
+                    addToTarget(endpoint);
+                    applied++;
+                }
+            });
+
+            if (applied > 0) {
+                Toast.success(`Configuración importada: ${applied} endpoints seleccionados`);
+            } else {
+                Toast.warning('No se encontraron endpoints coincidentes en la especificación actual');
+            }
+
+            // Clear input
+            importConfigInput.value = '';
+
+        } catch (error) {
+            Toast.error('Error importando configuración: ' + error.message);
+            importConfigInput.value = '';
+        }
+    });
+}
+
+// ================================
+// Presets Management
+// ================================
+
+const presetsBtn = document.getElementById('presetsBtn');
+const presetsModal = document.getElementById('presetsModal');
+const presetsModalClose = document.getElementById('presetsModalClose');
+const savePresetBtn = document.getElementById('savePresetBtn');
+const presetNameInput = document.getElementById('presetNameInput');
+const presetsList = document.getElementById('presetsList');
+
+// Open presets modal
+if (presetsBtn && presetsModal) {
+    presetsBtn.addEventListener('click', () => {
+        presetsModal.style.display = 'flex';
+        renderPresets();
+    });
+}
+
+// Close presets modal
+if (presetsModalClose) {
+    presetsModalClose.addEventListener('click', () => {
+        presetsModal.style.display = 'none';
+    });
+}
+
+// Close on overlay click
+if (presetsModal) {
+    presetsModal.addEventListener('click', (e) => {
+        if (e.target === presetsModal) {
+            presetsModal.style.display = 'none';
+        }
+    });
+}
+
+// Save preset
+if (savePresetBtn && presetNameInput) {
+    savePresetBtn.addEventListener('click', () => {
+        const name = presetNameInput.value.trim();
+
+        if (!name) {
+            Toast.warning('Ingresa un nombre para el preset');
+            return;
+        }
+
+        const selected = getSelectedEndpoints();
+
+        if (selected.length === 0) {
+            Toast.warning('Selecciona al menos un endpoint');
+            return;
+        }
+
+        const metadata = {
+            spec_title: document.querySelector('.spec-title')?.textContent || 'API',
+            spec_version: document.querySelector('.spec-version')?.textContent || '1.0.0',
+            total_selected: selected.length
+        };
+
+        try {
+            SelectionConfig.savePreset(name, selected, metadata);
+            Toast.success(`Preset "${name}" guardado`);
+            presetNameInput.value = '';
+            renderPresets();
+        } catch (error) {
+            Toast.error('Error guardando preset: ' + error.message);
+        }
+    });
+}
+
+// Render presets list
+function renderPresets() {
+    if (!presetsList) return;
+
+    const presets = SelectionConfig.getAllPresets();
+    const presetNames = Object.keys(presets);
+
+    if (presetNames.length === 0) {
+        presetsList.innerHTML = `
+            <div class="preset-empty">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <p>No hay presets guardados</p>
+            </div>
+        `;
+        return;
+    }
+
+    const html = presetNames.map(name => {
+        const preset = presets[name];
+        return `
+            <div class="preset-item" data-preset-name="${name}">
+                <div class="preset-item-info">
+                    <div class="preset-item-name">${name}</div>
+                    <div class="preset-item-meta">
+                        ${preset.selection.endpoints.length} endpoints •
+                        ${SelectionConfig.formatDate(preset.created_at)}
+                    </div>
+                </div>
+                <div class="preset-item-actions">
+                    <button class="preset-item-btn load-preset" data-preset-name="${name}" title="Cargar preset">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                    </button>
+                    <button class="preset-item-btn delete delete-preset" data-preset-name="${name}" title="Eliminar preset">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    presetsList.innerHTML = html;
+
+    // Attach event listeners
+    presetsList.querySelectorAll('.load-preset').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const name = btn.dataset.presetName;
+            loadPreset(name);
+        });
+    });
+
+    presetsList.querySelectorAll('.delete-preset').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const name = btn.dataset.presetName;
+            deletePreset(name);
+        });
+    });
+}
+
+// Load preset
+function loadPreset(name) {
+    const preset = SelectionConfig.loadPreset(name);
+    if (!preset) {
+        Toast.error(`Preset "${name}" no encontrado`);
+        return;
+    }
+
+    // Clear current selection
+    targetList.innerHTML = '';
+    updateSelectedCount();
+
+    // Add preset endpoints
+    const presetEndpoints = preset.selection.endpoints;
+    let applied = 0;
+
+    presetEndpoints.forEach(key => {
+        const endpoint = endpoints.find(ep => ep.key === key);
+        if (endpoint) {
+            addToTarget(endpoint);
+            applied++;
+        }
+    });
+
+    if (applied > 0) {
+        Toast.success(`Preset "${name}" cargado: ${applied} endpoints`);
+        presetsModal.style.display = 'none';
+    } else {
+        Toast.warning('No se encontraron endpoints coincidentes');
+    }
+}
+
+// Delete preset
+function deletePreset(name) {
+    if (!confirm(`¿Eliminar el preset "${name}"?`)) {
+        return;
+    }
+
+    try {
+        SelectionConfig.deletePreset(name);
+        Toast.info(`Preset "${name}" eliminado`);
+        renderPresets();
+    } catch (error) {
+        Toast.error('Error eliminando preset: ' + error.message);
+    }
+}
+
+// Helper: Get selected endpoints
+function getSelectedEndpoints() {
+    const targetItems = targetList.querySelectorAll('.endpoint-item');
+    return Array.from(targetItems).map(item => item.dataset.key);
+}
