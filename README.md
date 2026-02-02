@@ -4,17 +4,30 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
 
 ## Características Principales
 
+### Core Features
 - **Parser OpenAPI completo**: Soporta OpenAPI 3.0.x y 3.1.x con validación estricta
 - **Transformación automática**: Convierte endpoints en Tools y schemas en Resources
 - **Selección de endpoints**: Elige qué endpoints incluir mediante CLI, modo interactivo o GUI web
 - **Soporte FastMCP y MCP**: Genera servidores con FastMCP (recomendado) o MCP estándar
 - **Autenticación flexible**: Soporta API Key, Bearer Token, Basic Auth y OAuth2
 - **Cliente HTTP resiliente**: Reintentos automáticos con backoff exponencial
-- **Interfaz gráfica web**: Selecciona endpoints visualmente con drag & drop
-- **Modo standalone**: Ejecuta la GUI sin necesidad de archivo pre-cargado
-- **Carga desde URL**: Importa especificaciones OpenAPI desde URLs remotas
-- **Descarga como ZIP**: Genera y descarga servidores MCP comprimidos
-- **Despliegue Docker**: Imagen Docker lista para producción
+- **Despliegue Docker**: Imagen Docker lista para producción con Gunicorn
+
+### UI/UX Features ✨
+- **🌙 Dark/Light Mode**: Tema oscuro/claro con detección automática del sistema
+- **📋 Toast Notifications**: Sistema de notificaciones elegante y no intrusivo
+- **📂 Drag & Drop**: Arrastra archivos OpenAPI para cargarlos instantáneamente
+- **🕒 Recent Specs**: Historial de las últimas 10 especificaciones cargadas
+- **💾 Export/Import Config**: Exporta e importa configuraciones de selección de endpoints
+- **🔖 Presets**: Guarda y reutiliza selecciones de endpoints como presets
+- **📊 Progress Bars**: Barras de progreso detalladas con 10 pasos visibles
+- **⚡ Auto Cleanup**: Limpieza automática de archivos temporales y sesiones expiradas
+
+### Developer Experience
+- **🎯 Smart Error Messages**: Errores con contexto, sugerencias de solución y links a docs
+- **🔍 Carga desde URL**: Importa especificaciones OpenAPI desde URLs remotas
+- **📦 Descarga como ZIP**: Genera y descarga servidores MCP comprimidos
+- **🚀 Live Preview**: Vista previa del código generado sin guardarlo
 
 ---
 
@@ -757,30 +770,45 @@ openapi-to-mcp serve --port 8080
 
 ## 🗺️ Roadmap
 
-### Fase 1: Mejoras de Experiencia de Usuario (v1.1) ✅
+### Fase 1: Mejoras de Experiencia de Usuario (v1.1) ✅ COMPLETADA
 
-#### 🌙 Modo Oscuro/Claro
+#### 🌙 Modo Oscuro/Claro ✅
 - [x] Toggle de tema en la interfaz web
 - [x] Persistencia de preferencia en localStorage
 - [x] Detección automática de preferencia del sistema
 
-#### ✅ Validación en Tiempo Real
+#### ✅ Validación en Tiempo Real ✅
 - [x] Validación del OpenAPI spec mientras se carga
 - [x] Indicadores visuales de errores y warnings
 - [x] Sugerencias de corrección automática
 - [x] Panel de diagnóstico con detalles de problemas
 
-#### 👁️ Preview en Vivo
+#### 👁️ Preview en Vivo ✅
 - [x] Vista previa del código MCP generado antes de descargar
 - [x] Syntax highlighting para Python
 - [x] Navegación por archivos generados
 - [ ] Diff viewer para comparar versiones
 
-#### 📊 Estadísticas Avanzadas
+#### 📊 Estadísticas Avanzadas ✅
 - [x] Dashboard con métricas de uso
 - [x] Gráficos de endpoints más utilizados
+- [x] Historial de especificaciones recientes (últimas 10)
 - [ ] Tiempo promedio de generación
-- [ ] Historial de especificaciones procesadas
+
+#### 🎯 Performance & DX ✅ NUEVO
+- [x] Cleanup automático de archivos temporales
+- [x] Limpieza de sesiones expiradas (>2 horas)
+- [x] Progress bars detallados (10 pasos)
+- [x] Mensajes de error mejorados con contexto y sugerencias
+- [x] Links a documentación en errores
+
+#### 🎨 UI/UX Improvements ✅ NUEVO
+- [x] Toast notifications (success, error, warning, info)
+- [x] Drag & drop para upload de archivos
+- [x] Recent specs list con reload rápido
+- [x] Export/Import de configuración de selección
+- [x] Gestión de presets (guardar/cargar selecciones)
+- [x] Mobile responsive design
 
 ---
 
