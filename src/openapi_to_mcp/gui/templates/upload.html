@@ -11,6 +11,8 @@
     <script src="{{ url_for('static', filename='recent-specs.js') }}"></script>
     <!-- Spec Library -->
     <script src="{{ url_for('static', filename='spec-library.js') }}"></script>
+    <!-- Spec Config -->
+    <script src="{{ url_for('static', filename='spec-config.js') }}"></script>
     <!-- Prevent flash of wrong theme -->
     <script>
         (function() {
@@ -334,6 +336,7 @@
                         <div class="spec-tabs">
                             <button class="spec-tab active" data-tab="versions">Versiones</button>
                             <button class="spec-tab" data-tab="generations">Generaciones MCP</button>
+                            <button class="spec-tab" data-tab="config">Configuración</button>
                         </div>
 
                         <!-- Versions Tab -->
@@ -347,6 +350,208 @@
                         <div id="generationsTab" class="spec-tab-content" style="display: none;">
                             <div class="generations-list" id="generationsList">
                                 <!-- Generations will be rendered here -->
+                            </div>
+                        </div>
+
+                        <!-- Configuration Tab -->
+                        <div id="configTab" class="spec-tab-content" style="display: none;">
+                            <!-- Mode Toggle -->
+                            <div class="config-mode-toggle">
+                                <button class="mode-btn active" data-mode="gui">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="7" height="7"></rect>
+                                        <rect x="14" y="3" width="7" height="7"></rect>
+                                        <rect x="14" y="14" width="7" height="7"></rect>
+                                        <rect x="3" y="14" width="7" height="7"></rect>
+                                    </svg>
+                                    Formulario
+                                </button>
+                                <button class="mode-btn" data-mode="editor">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="16 18 22 12 16 6"></polyline>
+                                        <polyline points="8 6 2 12 8 18"></polyline>
+                                    </svg>
+                                    Editor YAML
+                                </button>
+                            </div>
+
+                            <!-- Profile Selector -->
+                            <div class="config-profile-section">
+                                <label>Cargar perfil:</label>
+                                <select id="configProfileSelect" class="profile-select">
+                                    <option value="">-- Seleccionar perfil --</option>
+                                </select>
+                                <button id="saveAsProfileBtn" class="btn-small">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                        <polyline points="7 3 7 8 15 8"></polyline>
+                                    </svg>
+                                    Guardar como perfil
+                                </button>
+                            </div>
+
+                            <!-- GUI Mode -->
+                            <div id="configGuiMode" class="config-mode-content">
+                                <form id="configForm" class="config-form">
+                                    <!-- Basic Settings -->
+                                    <div class="config-section">
+                                        <h4>Configuración Básica</h4>
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="cfgServiceName">Nombre del servicio *</label>
+                                                <input type="text" id="cfgServiceName" name="service_name" required pattern="[a-z][a-z0-9_]*">
+                                                <small>Solo minúsculas, números y guiones bajos</small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgServicePrefix">Prefijo del servicio</label>
+                                                <input type="text" id="cfgServicePrefix" name="service_prefix" pattern="[a-z][a-z0-9_]*">
+                                                <small>Prefijo para tools y resources</small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgMcpFramework">Framework MCP</label>
+                                                <select id="cfgMcpFramework" name="mcp_framework">
+                                                    <option value="fastmcp">FastMCP (Recomendado)</option>
+                                                    <option value="mcp">MCP Estándar</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgEnvironment">Ambiente</label>
+                                                <select id="cfgEnvironment" name="environment">
+                                                    <option value="development">Development</option>
+                                                    <option value="staging">Staging</option>
+                                                    <option value="production">Production</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- API Settings -->
+                                    <div class="config-section">
+                                        <h4>Configuración de API</h4>
+                                        <div class="form-grid">
+                                            <div class="form-group full-width">
+                                                <label for="cfgBaseUrl">URL Base</label>
+                                                <input type="url" id="cfgBaseUrl" name="base_url" placeholder="https://api.example.com">
+                                                <small>URL base de la API (opcional)</small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgTimeout">Timeout (segundos)</label>
+                                                <input type="number" id="cfgTimeout" name="timeout" min="1" max="300" value="30">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgLogLevel">Nivel de Log</label>
+                                                <select id="cfgLogLevel" name="log_level">
+                                                    <option value="DEBUG">DEBUG</option>
+                                                    <option value="INFO">INFO</option>
+                                                    <option value="WARNING">WARNING</option>
+                                                    <option value="ERROR">ERROR</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="form-checkboxes">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="cfgGenerateResources" name="generate_resources" checked>
+                                                Generar Resources
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="cfgIncludeDeprecated" name="include_deprecated">
+                                                Incluir endpoints deprecated
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- Authentication -->
+                                    <div class="config-section">
+                                        <h4>Autenticación</h4>
+                                        <div class="form-grid">
+                                            <div class="form-group full-width">
+                                                <label for="cfgAuthType">Tipo de autenticación</label>
+                                                <select id="cfgAuthType" name="auth_type">
+                                                    <option value="none">Sin autenticación</option>
+                                                    <option value="api_key">API Key</option>
+                                                    <option value="bearer">Bearer Token</option>
+                                                    <option value="basic">Basic Auth</option>
+                                                    <option value="oauth2">OAuth2</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div id="authConfigFields" class="form-grid" style="display: none;">
+                                            <!-- Dynamic auth fields will be inserted here -->
+                                        </div>
+                                    </div>
+
+                                    <!-- Retry Configuration -->
+                                    <div class="config-section">
+                                        <h4>Configuración de Reintentos</h4>
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="cfgMaxRetries">Máximo de reintentos</label>
+                                                <input type="number" id="cfgMaxRetries" name="max_retries" min="0" max="10" value="3">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgBackoffFactor">Factor de backoff</label>
+                                                <input type="number" id="cfgBackoffFactor" name="backoff_factor" min="0" max="5" step="0.1" value="0.5">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Action Buttons -->
+                                    <div class="config-actions">
+                                        <button type="button" id="resetConfigBtn" class="btn-secondary">
+                                            Restablecer
+                                        </button>
+                                        <button type="submit" class="btn-primary">
+                                            Guardar configuración
+                                        </button>
+                                    </div>
+                                </form>
+
+                                <!-- Validation Messages -->
+                                <div id="configValidation" class="validation-messages" style="display: none;"></div>
+                            </div>
+
+                            <!-- Editor Mode -->
+                            <div id="configEditorMode" class="config-mode-content" style="display: none;">
+                                <div class="editor-toolbar">
+                                    <button id="formatYamlBtn" class="btn-small">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="4 7 4 4 20 4 20 7"></polyline>
+                                            <line x1="9" y1="20" x2="15" y2="20"></line>
+                                            <line x1="12" y1="4" x2="12" y2="20"></line>
+                                        </svg>
+                                        Formatear
+                                    </button>
+                                    <button id="validateYamlBtn" class="btn-small">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                        </svg>
+                                        Validar
+                                    </button>
+                                    <button id="exportConfigBtn" class="btn-small">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="7 10 12 15 17 10"></polyline>
+                                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                                        </svg>
+                                        Exportar
+                                    </button>
+                                    <label class="btn-small" for="importConfigInput">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="17 8 12 3 7 8"></polyline>
+                                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                                        </svg>
+                                        Importar
+                                    </label>
+                                    <input type="file" id="importConfigInput" accept=".yaml,.yml,.json" style="display: none;">
+                                </div>
+                                <textarea id="configEditor" class="config-editor" spellcheck="false"></textarea>
+                                <div class="editor-footer">
+                                    <button id="saveYamlConfigBtn" class="btn-primary">Guardar configuración</button>
+                                </div>
+                                <!-- Validation Messages -->
+                                <div id="editorValidation" class="validation-messages" style="display: none;"></div>
                             </div>
                         </div>
                     </div>
@@ -1272,7 +1477,433 @@
         // Initialize Library UI
         document.addEventListener('DOMContentLoaded', () => {
             LibraryUI.init();
+            ConfigUI.init();
         });
+
+        // ================================
+        // Configuration UI Management
+        // ================================
+        const ConfigUI = {
+            currentSpecId: null,
+            currentMode: 'gui',
+
+            init() {
+                // Mode toggle
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.addEventListener('click', () => this.switchMode(btn.dataset.mode));
+                });
+
+                // Profile selector
+                document.getElementById('configProfileSelect').addEventListener('change', (e) => this.loadProfile(e.target.value));
+                document.getElementById('saveAsProfileBtn').addEventListener('click', () => this.saveAsProfile());
+
+                // Form submit
+                document.getElementById('configForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.saveConfigFromForm();
+                });
+
+                // Reset button
+                document.getElementById('resetConfigBtn').addEventListener('click', () => this.resetConfig());
+
+                // Auth type change
+                document.getElementById('cfgAuthType').addEventListener('change', (e) => this.updateAuthFields(e.target.value));
+
+                // Editor actions
+                document.getElementById('formatYamlBtn').addEventListener('click', () => this.formatYaml());
+                document.getElementById('validateYamlBtn').addEventListener('click', () => this.validateYaml());
+                document.getElementById('exportConfigBtn').addEventListener('click', () => this.exportConfig());
+                document.getElementById('importConfigInput').addEventListener('change', (e) => this.importConfig(e));
+                document.getElementById('saveYamlConfigBtn').addEventListener('click', () => this.saveConfigFromEditor());
+
+                // Real-time validation for form
+                document.getElementById('cfgServiceName').addEventListener('input', () => this.validateForm());
+            },
+
+            loadConfigForSpec(specId) {
+                this.currentSpecId = specId;
+                const config = SpecConfig.getConfig(specId);
+
+                // Load profiles
+                this.loadProfilesList();
+
+                // Load config to form
+                this.loadConfigToForm(config);
+
+                // Load config to editor
+                this.loadConfigToEditor(config);
+            },
+
+            loadProfilesList() {
+                const profiles = SpecConfig.getAllProfiles();
+                const select = document.getElementById('configProfileSelect');
+
+                select.innerHTML = '<option value="">-- Seleccionar perfil --</option>' +
+                    profiles.map(profile => `
+                        <option value="${profile.id}">
+                            ${this.escapeHtml(profile.name)}${profile.is_default ? ' (Default)' : ''}
+                        </option>
+                    `).join('');
+            },
+
+            loadProfile(profileId) {
+                if (!profileId || !this.currentSpecId) return;
+
+                const result = SpecConfig.applyProfile(this.currentSpecId, profileId);
+                if (result) {
+                    Toast.success('Perfil aplicado correctamente');
+                    this.loadConfigForSpec(this.currentSpecId);
+                } else {
+                    Toast.error('Error al aplicar el perfil');
+                }
+            },
+
+            saveAsProfile() {
+                const name = prompt('Nombre del perfil:');
+                if (!name) return;
+
+                const description = prompt('Descripción (opcional):') || '';
+
+                let config;
+                if (this.currentMode === 'gui') {
+                    config = this.getConfigFromForm();
+                } else {
+                    const yaml = document.getElementById('configEditor').value;
+                    try {
+                        config = SpecConfig.parseYAML(yaml);
+                    } catch (e) {
+                        Toast.error('Error al parsear configuración: ' + e.message);
+                        return;
+                    }
+                }
+
+                try {
+                    SpecConfig.saveProfile(name, description, config, false);
+                    Toast.success('Perfil guardado correctamente');
+                    this.loadProfilesList();
+                } catch (e) {
+                    Toast.error('Error al guardar perfil: ' + e.message);
+                }
+            },
+
+            switchMode(mode) {
+                this.currentMode = mode;
+
+                // Update buttons
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.mode === mode);
+                });
+
+                // Update content
+                document.getElementById('configGuiMode').style.display = mode === 'gui' ? 'block' : 'none';
+                document.getElementById('configEditorMode').style.display = mode === 'editor' ? 'block' : 'none';
+
+                // If switching to editor, sync from form
+                if (mode === 'editor') {
+                    const config = this.getConfigFromForm();
+                    this.loadConfigToEditor(config);
+                }
+            },
+
+            loadConfigToForm(config) {
+                document.getElementById('cfgServiceName').value = config.service_name || '';
+                document.getElementById('cfgServicePrefix').value = config.service_prefix || '';
+                document.getElementById('cfgMcpFramework').value = config.mcp_framework || 'fastmcp';
+                document.getElementById('cfgEnvironment').value = config.environment || 'development';
+                document.getElementById('cfgBaseUrl').value = config.base_url || '';
+                document.getElementById('cfgTimeout').value = config.timeout || 30;
+                document.getElementById('cfgLogLevel').value = config.log_level || 'INFO';
+                document.getElementById('cfgGenerateResources').checked = config.generate_resources !== false;
+                document.getElementById('cfgIncludeDeprecated').checked = config.include_deprecated === true;
+
+                // Auth
+                const authType = config.auth_config?.type || 'none';
+                document.getElementById('cfgAuthType').value = authType;
+                this.updateAuthFields(authType, config.auth_config);
+
+                // Retry
+                document.getElementById('cfgMaxRetries').value = config.retry_config?.max_retries || 3;
+                document.getElementById('cfgBackoffFactor').value = config.retry_config?.backoff_factor || 0.5;
+            },
+
+            loadConfigToEditor(config) {
+                const yaml = SpecConfig.configToYAML(config);
+                document.getElementById('configEditor').value = yaml;
+            },
+
+            getConfigFromForm() {
+                const authType = document.getElementById('cfgAuthType').value;
+                const authConfig = {
+                    type: authType
+                };
+
+                // Get auth-specific fields
+                if (authType !== 'none') {
+                    const authFields = document.getElementById('authConfigFields');
+                    authFields.querySelectorAll('input, select').forEach(input => {
+                        if (input.value) {
+                            authConfig[input.name.replace('auth_', '')] = input.value;
+                        }
+                    });
+                }
+
+                return {
+                    service_name: document.getElementById('cfgServiceName').value,
+                    service_prefix: document.getElementById('cfgServicePrefix').value,
+                    mcp_framework: document.getElementById('cfgMcpFramework').value,
+                    environment: document.getElementById('cfgEnvironment').value,
+                    base_url: document.getElementById('cfgBaseUrl').value,
+                    timeout: parseInt(document.getElementById('cfgTimeout').value),
+                    log_level: document.getElementById('cfgLogLevel').value,
+                    generate_resources: document.getElementById('cfgGenerateResources').checked,
+                    include_deprecated: document.getElementById('cfgIncludeDeprecated').checked,
+                    auth_config: authConfig,
+                    retry_config: {
+                        max_retries: parseInt(document.getElementById('cfgMaxRetries').value),
+                        backoff_factor: parseFloat(document.getElementById('cfgBackoffFactor').value),
+                        retry_statuses: [429, 500, 502, 503, 504]
+                    }
+                };
+            },
+
+            saveConfigFromForm() {
+                const config = this.getConfigFromForm();
+                const validation = SpecConfig.validateConfig(config);
+
+                this.showValidation('configValidation', validation);
+
+                if (validation.valid) {
+                    SpecConfig.saveConfig(this.currentSpecId, config);
+                    Toast.success('Configuración guardada correctamente');
+                    // Update editor if visible
+                    if (this.currentMode === 'editor') {
+                        this.loadConfigToEditor(config);
+                    }
+                } else {
+                    Toast.error('La configuración tiene errores');
+                }
+            },
+
+            saveConfigFromEditor() {
+                const yaml = document.getElementById('configEditor').value;
+
+                try {
+                    const config = SpecConfig.parseYAML(yaml);
+                    const validation = SpecConfig.validateConfig(config);
+
+                    this.showValidation('editorValidation', validation);
+
+                    if (validation.valid) {
+                        SpecConfig.saveConfig(this.currentSpecId, config);
+                        Toast.success('Configuración guardada correctamente');
+                        // Update form if visible
+                        if (this.currentMode === 'gui') {
+                            this.loadConfigToForm(config);
+                        }
+                    } else {
+                        Toast.error('La configuración tiene errores');
+                    }
+                } catch (e) {
+                    Toast.error('Error al parsear YAML: ' + e.message);
+                    this.showValidation('editorValidation', {
+                        valid: false,
+                        errors: ['Error de sintaxis: ' + e.message],
+                        warnings: []
+                    });
+                }
+            },
+
+            resetConfig() {
+                if (!confirm('¿Restablecer la configuración a valores por defecto?')) return;
+
+                const defaultConfig = SpecConfig._getDefaultConfig(this.currentSpecId);
+                this.loadConfigToForm(defaultConfig);
+                this.loadConfigToEditor(defaultConfig);
+                Toast.info('Configuración restablecida');
+            },
+
+            updateAuthFields(authType, authConfig = {}) {
+                const container = document.getElementById('authConfigFields');
+
+                if (authType === 'none') {
+                    container.style.display = 'none';
+                    return;
+                }
+
+                container.style.display = 'grid';
+
+                let html = '';
+                if (authType === 'api_key') {
+                    html = `
+                        <div class="form-group">
+                            <label>Nombre del header</label>
+                            <input type="text" name="auth_api_key_name" value="${authConfig.api_key_name || 'X-API-Key'}">
+                        </div>
+                        <div class="form-group">
+                            <label>Variable de entorno</label>
+                            <input type="text" name="auth_token_env" value="${authConfig.token_env || 'API_KEY'}">
+                        </div>
+                    `;
+                } else if (authType === 'bearer') {
+                    html = `
+                        <div class="form-group">
+                            <label>Nombre del header</label>
+                            <input type="text" name="auth_header_name" value="${authConfig.header_name || 'Authorization'}">
+                        </div>
+                        <div class="form-group">
+                            <label>Variable de entorno del token</label>
+                            <input type="text" name="auth_token_env" value="${authConfig.token_env || 'BEARER_TOKEN'}">
+                        </div>
+                    `;
+                } else if (authType === 'basic') {
+                    html = `
+                        <div class="form-group">
+                            <label>Variable de usuario</label>
+                            <input type="text" name="auth_username_env" value="${authConfig.username_env || 'API_USERNAME'}">
+                        </div>
+                        <div class="form-group">
+                            <label>Variable de contraseña</label>
+                            <input type="text" name="auth_password_env" value="${authConfig.password_env || 'API_PASSWORD'}">
+                        </div>
+                    `;
+                } else if (authType === 'oauth2') {
+                    html = `
+                        <div class="form-group full-width">
+                            <label>Variable de token OAuth2</label>
+                            <input type="text" name="auth_token_env" value="${authConfig.token_env || 'OAUTH2_TOKEN'}">
+                        </div>
+                    `;
+                }
+
+                container.innerHTML = html;
+            },
+
+            validateForm() {
+                const config = this.getConfigFromForm();
+                const validation = SpecConfig.validateConfig(config);
+                this.showValidation('configValidation', validation);
+                return validation.valid;
+            },
+
+            validateYaml() {
+                const yaml = document.getElementById('configEditor').value;
+
+                try {
+                    const config = SpecConfig.parseYAML(yaml);
+                    const validation = SpecConfig.validateConfig(config);
+                    this.showValidation('editorValidation', validation);
+
+                    if (validation.valid && validation.warnings.length === 0) {
+                        Toast.success('Configuración válida');
+                    } else if (validation.valid) {
+                        Toast.warning('Configuración válida con advertencias');
+                    } else {
+                        Toast.error('Configuración inválida');
+                    }
+                } catch (e) {
+                    Toast.error('Error de sintaxis: ' + e.message);
+                    this.showValidation('editorValidation', {
+                        valid: false,
+                        errors: ['Error de sintaxis: ' + e.message],
+                        warnings: []
+                    });
+                }
+            },
+
+            formatYaml() {
+                const yaml = document.getElementById('configEditor').value;
+
+                try {
+                    const config = SpecConfig.parseYAML(yaml);
+                    const formatted = SpecConfig.configToYAML(config);
+                    document.getElementById('configEditor').value = formatted;
+                    Toast.success('YAML formateado');
+                } catch (e) {
+                    Toast.error('Error al formatear: ' + e.message);
+                }
+            },
+
+            exportConfig() {
+                if (!this.currentSpecId) return;
+                SpecConfig.exportConfig(this.currentSpecId);
+                Toast.success('Configuración exportada');
+            },
+
+            async importConfig(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                try {
+                    const config = await SpecConfig.importConfig(file, this.currentSpecId);
+                    Toast.success('Configuración importada correctamente');
+                    this.loadConfigForSpec(this.currentSpecId);
+                } catch (error) {
+                    Toast.error('Error al importar: ' + error.message);
+                }
+
+                e.target.value = '';
+            },
+
+            showValidation(containerId, validation) {
+                const container = document.getElementById(containerId);
+
+                if (validation.errors.length === 0 && validation.warnings.length === 0) {
+                    container.style.display = 'none';
+                    return;
+                }
+
+                let html = '';
+
+                if (validation.errors.length > 0) {
+                    html += '<div class="validation-section error">';
+                    html += '<h5>Errores:</h5><ul>';
+                    validation.errors.forEach(err => {
+                        html += `<li>${this.escapeHtml(err)}</li>`;
+                    });
+                    html += '</ul></div>';
+                }
+
+                if (validation.warnings.length > 0) {
+                    html += '<div class="validation-section warning">';
+                    html += '<h5>Advertencias:</h5><ul>';
+                    validation.warnings.forEach(warn => {
+                        html += `<li>${this.escapeHtml(warn)}</li>`;
+                    });
+                    html += '</ul></div>';
+                }
+
+                container.innerHTML = html;
+                container.style.display = 'block';
+            },
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        };
+
+        // Extend LibraryUI to handle config tab
+        const originalSwitchTab = LibraryUI.switchTab;
+        LibraryUI.switchTab = function(tab) {
+            originalSwitchTab.call(this, tab);
+
+            // Update tab content visibility
+            document.getElementById('versionsTab').style.display = tab === 'versions' ? 'block' : 'none';
+            document.getElementById('generationsTab').style.display = tab === 'generations' ? 'block' : 'none';
+            document.getElementById('configTab').style.display = tab === 'config' ? 'block' : 'none';
+
+            // Render content
+            if (this.currentSpecId) {
+                if (tab === 'versions') {
+                    this.renderVersions(this.currentSpecId);
+                } else if (tab === 'generations') {
+                    this.renderGenerations(this.currentSpecId);
+                } else if (tab === 'config') {
+                    ConfigUI.loadConfigForSpec(this.currentSpecId);
+                }
+            }
+        };
     </script>
 </body>
 </html>
