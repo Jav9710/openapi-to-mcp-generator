@@ -27,6 +27,11 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
 - **⭐ Favorites & Tags**: Sistema de favoritos y etiquetado para organizar specs
 - **🔍 Advanced Search**: Búsqueda y filtrado avanzado de especificaciones
 - **📈 Generation Tracking**: Registro de todas las generaciones MCP realizadas
+- **⚙️ Advanced Configuration**: Configuración avanzada por especificación
+- **📝 Dual Mode Editor**: Formulario GUI y editor YAML/JSON con toggle
+- **🎨 Configuration Profiles**: Perfiles reutilizables (Development, Production, etc.)
+- **✅ Real-time Validation**: Validación en tiempo real con errores y advertencias
+- **💾 Config Import/Export**: Exporta e importa configuraciones en YAML
 
 ### Developer Experience
 - **🎯 Smart Error Messages**: Errores con contexto, sugerencias de solución y links a docs
@@ -871,10 +876,10 @@ Sistema completo de control de versiones para OpenAPI specs:
 
 ---
 
-### Fase 3: Configuración Avanzada de MCP (v1.3)
+### Fase 3: Configuración Avanzada de MCP (v1.3) ✅ COMPLETADA
 
-#### ⚙️ Zona de Configuración por Especificación
-Cada especificación tendrá su propia configuración de salida MCP:
+#### ⚙️ Zona de Configuración por Especificación ✅
+Cada especificación tiene su propia configuración de salida MCP:
 
 **Modo Editor (YAML/JSON):**
 ```yaml
@@ -925,11 +930,11 @@ endpoint_filters:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-- [ ] Toggle entre modo Editor y modo GUI
-- [ ] Validación de configuración en tiempo real
-- [ ] Perfiles de configuración reutilizables
-- [ ] Importar/Exportar configuraciones
-- [ ] Configuración heredada de plantillas
+- [x] Toggle entre modo Editor y modo GUI
+- [x] Validación de configuración en tiempo real
+- [x] Perfiles de configuración reutilizables (4 perfiles por defecto)
+- [x] Importar/Exportar configuraciones (YAML/JSON)
+- [x] Aplicar perfiles a especificaciones existentes
 
 ---
 
