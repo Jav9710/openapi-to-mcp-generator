@@ -22,6 +22,11 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
 - **🔖 Presets**: Guarda y reutiliza selecciones de endpoints como presets
 - **📊 Progress Bars**: Barras de progreso detalladas con 10 pasos visibles
 - **⚡ Auto Cleanup**: Limpieza automática de archivos temporales y sesiones expiradas
+- **📚 Spec Library**: Biblioteca completa de especificaciones con versionado
+- **🔄 Version Control**: Historial de versiones con timeline visual y diff viewer
+- **⭐ Favorites & Tags**: Sistema de favoritos y etiquetado para organizar specs
+- **🔍 Advanced Search**: Búsqueda y filtrado avanzado de especificaciones
+- **📈 Generation Tracking**: Registro de todas las generaciones MCP realizadas
 
 ### Developer Experience
 - **🎯 Smart Error Messages**: Errores con contexto, sugerencias de solución y links a docs
@@ -812,25 +817,25 @@ openapi-to-mcp serve --port 8080
 
 ---
 
-### Fase 2: Gestión de Especificaciones (v1.2)
+### Fase 2: Gestión de Especificaciones (v1.2) ✅ COMPLETADA
 
-#### 📁 Administrador de Especificaciones OpenAPI
-- [ ] Biblioteca de especificaciones cargadas
-- [ ] Organización por proyectos/carpetas
-- [ ] Búsqueda y filtrado de especificaciones
-- [ ] Etiquetado y categorización
-- [ ] Favoritos y accesos rápidos
+#### 📁 Administrador de Especificaciones OpenAPI ✅
+- [x] Biblioteca de especificaciones cargadas
+- [x] Organización por proyectos/carpetas
+- [x] Búsqueda y filtrado de especificaciones
+- [x] Etiquetado y categorización
+- [x] Favoritos y accesos rápidos
 
-#### 🔄 Versionado de Especificaciones
+#### 🔄 Versionado de Especificaciones ✅
 Sistema completo de control de versiones para OpenAPI specs:
 
-| Característica | Descripción |
-|---------------|-------------|
-| **Historial de versiones** | Registro automático de cada versión cargada |
-| **Timeline visual** | Línea de tiempo interactiva con todas las versiones |
-| **Diff entre versiones** | Comparación visual de cambios entre versiones |
-| **Restaurar versiones** | Capacidad de volver a versiones anteriores |
-| **Notas de cambio** | Comentarios y descripciones por versión |
+| Característica | Descripción | Estado |
+|---------------|-------------|---------|
+| **Historial de versiones** | Registro automático de cada versión cargada | ✅ |
+| **Timeline visual** | Línea de tiempo interactiva con todas las versiones | ✅ |
+| **Diff entre versiones** | Comparación visual de cambios entre versiones | ✅ |
+| **Restaurar versiones** | Capacidad de volver a versiones anteriores | ✅ |
+| **Notas de cambio** | Comentarios y descripciones por versión | ✅ |
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -857,12 +862,12 @@ Sistema completo de control de versiones para OpenAPI specs:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### 🔧 Registro de Generaciones MCP
-- [ ] Indicador visual de versiones con MCP generado
-- [ ] Fecha y hora exacta de cada generación
-- [ ] Configuración utilizada en cada generación
-- [ ] Enlace de descarga del ZIP generado (si está disponible)
-- [ ] Estadísticas de generación (tools, resources, tiempo)
+#### 🔧 Registro de Generaciones MCP ✅
+- [x] Indicador visual de versiones con MCP generado
+- [x] Fecha y hora exacta de cada generación
+- [x] Configuración utilizada en cada generación
+- [x] Enlace de descarga del ZIP generado (si está disponible)
+- [x] Estadísticas de generación (tools, resources, tiempo)
 
 ---
 
