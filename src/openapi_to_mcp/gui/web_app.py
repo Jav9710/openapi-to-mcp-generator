@@ -459,6 +459,177 @@ def register_routes(app: Flask):
         except Exception:
             pass  # SocketIO es opcional
 
+        # Disparar webhooks asociados al evento
+        try:
+            from .webhooks import dispatch_webhook_event
+            dispatch_webhook_event(workspace_id, action, {
+                "resource_type": resource_type,
+                "resource_name": resource_name,
+                "details": details,
+                "user_id": user_id,
+            })
+        except Exception:
+            pass  # Webhooks son opcionales
+
+    # ========== Webhook Routes ==========
+
+    @app.route("/api/webhooks", methods=["GET"])
+    def list_webhooks():
+        """Lista webhooks del workspace."""
+        from flask_login import current_user
+        from .database import Webhook, WorkspaceMember
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        ws_id = request.args.get("workspace_id", type=int)
+        if not ws_id:
+            membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+            ws_id = membership.workspace_id if membership else None
+
+        if not ws_id:
+            return jsonify({"webhooks": []})
+
+        webhooks = Webhook.query.filter_by(workspace_id=ws_id).all()
+        return jsonify({"webhooks": [w.to_dict() for w in webhooks]})
+
+    @app.route("/api/webhooks", methods=["POST"])
+    def create_webhook():
+        """Crea un nuevo webhook."""
+        from flask_login import current_user
+        from .database import db, Webhook, WorkspaceMember, UserRole
+        import secrets
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        data = request.json
+        url = data.get("url", "").strip()
+        if not url or not url.startswith(("http://", "https://")):
+            return jsonify({"error": "URL invalida"}), 400
+
+        events = data.get("events", [])
+        if not events:
+            return jsonify({"error": "Debe seleccionar al menos un evento"}), 400
+
+        ws_id = data.get("workspace_id")
+        if not ws_id:
+            membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+            ws_id = membership.workspace_id if membership else None
+
+        if not ws_id:
+            return jsonify({"error": "Workspace no encontrado"}), 400
+
+        secret = secrets.token_hex(32)
+        webhook = Webhook(
+            workspace_id=ws_id,
+            url=url,
+            secret=secret,
+            events=events,
+            description=data.get("description", ""),
+        )
+        db.session.add(webhook)
+        db.session.commit()
+
+        result = webhook.to_dict()
+        result["secret"] = secret  # Solo se muestra al crear
+        return jsonify({"success": True, "webhook": result})
+
+    @app.route("/api/webhooks/<int:webhook_id>", methods=["PUT"])
+    def update_webhook(webhook_id):
+        """Actualiza un webhook."""
+        from flask_login import current_user
+        from .database import db, Webhook, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        webhook = db.session.get(Webhook, webhook_id)
+        if not webhook:
+            return jsonify({"error": "Webhook no encontrado"}), 404
+
+        data = request.json
+        if "url" in data:
+            webhook.url = data["url"].strip()
+        if "events" in data:
+            webhook.events = data["events"]
+        if "description" in data:
+            webhook.description = data["description"]
+        if "is_active" in data:
+            webhook.is_active = data["is_active"]
+
+        db.session.commit()
+        return jsonify({"success": True, "webhook": webhook.to_dict()})
+
+    @app.route("/api/webhooks/<int:webhook_id>", methods=["DELETE"])
+    def delete_webhook(webhook_id):
+        """Elimina un webhook."""
+        from flask_login import current_user
+        from .database import db, Webhook, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        webhook = db.session.get(Webhook, webhook_id)
+        if not webhook:
+            return jsonify({"error": "Webhook no encontrado"}), 404
+
+        db.session.delete(webhook)
+        db.session.commit()
+        return jsonify({"success": True})
+
+    @app.route("/api/webhooks/<int:webhook_id>/test", methods=["POST"])
+    def test_webhook(webhook_id):
+        """Envia un evento de prueba al webhook."""
+        from flask_login import current_user
+        from .database import db, Webhook, UserRole
+        from .webhooks import _send_webhook
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        webhook = db.session.get(Webhook, webhook_id)
+        if not webhook:
+            return jsonify({"error": "Webhook no encontrado"}), 404
+
+        # Enviar evento de prueba sincrono
+        try:
+            import requests as req
+            import json as _json
+            import hashlib
+            import hmac as _hmac
+            from datetime import datetime as _dt, timezone as _tz
+
+            body = _json.dumps({
+                "event": "test",
+                "timestamp": _dt.now(_tz.utc).isoformat(),
+                "data": {"message": "Webhook test from OpenAPI to MCP Generator"},
+            })
+
+            headers = {
+                "Content-Type": "application/json",
+                "X-Webhook-Event": "test",
+            }
+
+            if webhook.secret:
+                sig = _hmac.new(webhook.secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+                headers["X-Webhook-Signature"] = f"sha256={sig}"
+
+            resp = req.post(webhook.url, data=body, headers=headers, timeout=10)
+            return jsonify({
+                "success": resp.status_code < 300,
+                "status_code": resp.status_code,
+                "response": resp.text[:500],
+            })
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)})
+
     # ========== Admin Routes ==========
 
     @app.route("/admin")
