@@ -123,14 +123,44 @@ def create_app(
     init_auth(app)
     create_default_admin(app)
 
+    # Inicializar SocketIO para actividad en tiempo real
+    try:
+        from flask_socketio import SocketIO
+        socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+        logger.info("SocketIO initialized for real-time activity")
+    except ImportError:
+        socketio = None
+        logger.warning("flask-socketio not installed, real-time activity disabled")
+
     # Registrar rutas
     register_routes(app)
+
+    # Registrar eventos SocketIO
+    if socketio:
+        _register_socketio_events(socketio)
 
     # Iniciar cleanup automático de sesiones en modo standalone
     if standalone or (spec is None):
         start_background_cleanup()
 
     return app
+
+
+def _register_socketio_events(socketio):
+    """Registra eventos de SocketIO para actividad en tiempo real."""
+    from flask_socketio import join_room, leave_room
+
+    @socketio.on("join_workspace")
+    def handle_join(data):
+        ws_id = data.get("workspace_id")
+        if ws_id:
+            join_room(f"workspace_{ws_id}")
+
+    @socketio.on("leave_workspace")
+    def handle_leave(data):
+        ws_id = data.get("workspace_id")
+        if ws_id:
+            leave_room(f"workspace_{ws_id}")
 
 
 def cleanup_old_sessions():
@@ -407,7 +437,7 @@ def register_routes(app: Flask):
         return jsonify({"activities": [a.to_dict() for a in activities]})
 
     def _log_activity(user_id, workspace_id, action, resource_type=None, resource_name=None, details=None):
-        """Helper para registrar actividad."""
+        """Helper para registrar actividad y emitir via SocketIO si disponible."""
         from .database import db, ActivityLog
         activity = ActivityLog(
             user_id=user_id,
@@ -419,6 +449,15 @@ def register_routes(app: Flask):
         )
         db.session.add(activity)
         db.session.commit()
+
+        # Emitir evento en tiempo real via SocketIO
+        try:
+            from flask_socketio import emit
+            socketio = app.extensions.get("socketio")
+            if socketio:
+                socketio.emit("activity", activity.to_dict(), room=f"workspace_{workspace_id}")
+        except Exception:
+            pass  # SocketIO es opcional
 
     # ========== Admin Routes ==========
 
@@ -590,6 +629,22 @@ def register_routes(app: Flask):
             from ..validators import OpenAPIValidator
             validator = OpenAPIValidator(check_best_practices=True)
             validation = validator.validate_file(str(temp_path))
+
+            # Registrar actividad de upload
+            try:
+                from flask_login import current_user
+                if current_user.is_authenticated:
+                    from .database import WorkspaceMember
+                    membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+                    ws_id = membership.workspace_id if membership else None
+                    if ws_id:
+                        _log_activity(
+                            current_user.id, ws_id, "spec_uploaded",
+                            "spec", spec.title or file.filename,
+                            f"{stats['total']} endpoints"
+                        )
+            except Exception:
+                pass
 
             return jsonify({
                 "success": True,
@@ -1280,6 +1335,8 @@ def register_routes(app: Flask):
             resources = resource_transformer.transform(spec, tools)
 
             # Generar
+            import time as _time
+            gen_start = _time.time()
             generator = MCPServerGenerator(output_dir=output_dir)
             result = generator.generate(
                 spec=spec,
@@ -1287,6 +1344,24 @@ def register_routes(app: Flask):
                 resources=resources,
                 config=config,
             )
+            generation_time = round((_time.time() - gen_start) * 1000)
+
+            # Registrar actividad de generacion
+            if result.success:
+                try:
+                    from flask_login import current_user
+                    if current_user.is_authenticated:
+                        from .database import WorkspaceMember
+                        membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+                        ws_id = membership.workspace_id if membership else None
+                        if ws_id:
+                            _log_activity(
+                                current_user.id, ws_id, "mcp_generated",
+                                "server", service_name,
+                                f"{len(result.tools_generated)} tools, {mcp_framework}, {generation_time}ms"
+                            )
+                except Exception:
+                    pass
 
             if download_zip and result.success:
                 # Crear ZIP
@@ -1308,6 +1383,7 @@ def register_routes(app: Flask):
                     "resources_count": len(result.resources_generated),
                     "warnings": result.warnings,
                     "errors": result.errors,
+                    "generation_time": generation_time,
                     "download_url": f"/api/download/{zip_id}",
                     "zip_filename": zip_filename,
                 })
@@ -1319,10 +1395,25 @@ def register_routes(app: Flask):
                     "resources_count": len(result.resources_generated),
                     "warnings": result.warnings,
                     "errors": result.errors,
+                    "generation_time": generation_time,
                 })
 
         except Exception as e:
             logger.exception("Error generando servidor")
+            # Registrar fallo
+            try:
+                from flask_login import current_user
+                if current_user.is_authenticated:
+                    from .database import WorkspaceMember
+                    membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+                    ws_id = membership.workspace_id if membership else None
+                    if ws_id:
+                        _log_activity(
+                            current_user.id, ws_id, "mcp_failed",
+                            "server", service_name, str(e)
+                        )
+            except Exception:
+                pass
             return jsonify({
                 "success": False,
                 "error": str(e),
