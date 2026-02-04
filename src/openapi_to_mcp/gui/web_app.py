@@ -630,6 +630,208 @@ def register_routes(app: Flask):
         except Exception as e:
             return jsonify({"success": False, "error": str(e)})
 
+    # ========== API Keys Routes ==========
+
+    @app.route("/api/keys", methods=["GET"])
+    def list_api_keys():
+        """Lista las API keys del usuario."""
+        from flask_login import current_user
+        from .api_keys import list_user_keys
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        return jsonify({"keys": list_user_keys(current_user.id)})
+
+    @app.route("/api/keys", methods=["POST"])
+    def create_api_key():
+        """Genera una nueva API key."""
+        from flask_login import current_user
+        from .api_keys import generate_api_key
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        data = request.json or {}
+        name = data.get("name", "default")
+        raw_key, record = generate_api_key(current_user.id, name)
+
+        result = record.to_dict()
+        result["key"] = raw_key  # Solo se muestra una vez
+        return jsonify({"success": True, "api_key": result})
+
+    @app.route("/api/keys/<int:key_id>", methods=["DELETE"])
+    def revoke_api_key_route(key_id):
+        """Revoca una API key."""
+        from flask_login import current_user
+        from .api_keys import revoke_api_key
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        if revoke_api_key(key_id, current_user.id):
+            return jsonify({"success": True})
+        return jsonify({"error": "API key no encontrada"}), 404
+
+    # ========== API v1 (Programmatic Access) ==========
+
+    @app.route("/api/v1/specs", methods=["GET"])
+    def api_v1_list_specs():
+        """Lista specs disponibles en sesion."""
+        from flask_login import current_user
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        specs = []
+        for sid, data in _session_specs.items():
+            if not sid.startswith("zip_") and "spec" in data:
+                specs.append({
+                    "session_id": sid,
+                    "title": data["spec"].title,
+                    "version": data["spec"].version,
+                    "filename": data.get("filename"),
+                    "created_at": data["created_at"].isoformat() if data.get("created_at") else None,
+                })
+        return jsonify({"specs": specs})
+
+    @app.route("/api/v1/specs", methods=["POST"])
+    def api_v1_upload_spec():
+        """Sube un spec via API (JSON body con content)."""
+        from flask_login import current_user
+        from ..parsers.openapi_parser import OpenAPIParser, OpenAPIParserError
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        data = request.json or {}
+        content = data.get("content", "")
+        filename = data.get("filename", "openapi.yaml")
+
+        if not content:
+            return jsonify({"error": "content es requerido"}), 400
+
+        try:
+            temp_dir = tempfile.mkdtemp()
+            temp_path = Path(temp_dir) / filename
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            parser = OpenAPIParser(strict_validation=False)
+            spec = parser.parse(str(temp_path))
+
+            session_id = str(uuid.uuid4())[:8]
+            _session_specs[session_id] = {
+                "spec": spec,
+                "spec_path": str(temp_path),
+                "temp_dir": temp_dir,
+                "filename": filename,
+                "created_at": datetime.now(),
+            }
+
+            from ..endpoint_selector import EndpointSelector
+            selector = EndpointSelector(spec, include_deprecated=True)
+            stats = selector.get_stats()
+
+            return jsonify({
+                "success": True,
+                "session_id": session_id,
+                "title": spec.title,
+                "version": spec.version,
+                "endpoints_count": stats["total"],
+            })
+
+        except OpenAPIParserError as e:
+            return jsonify({"error": f"Error parseando spec: {str(e)}"}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/v1/generate", methods=["POST"])
+    def api_v1_generate():
+        """Genera servidor MCP via API."""
+        from flask_login import current_user
+        from ..endpoint_selector import EndpointSelector
+        from ..generators.server_generator import MCPServerGenerator
+        from ..models import MCPServerConfig, MCPFramework, EndpointFilter
+        from ..transformers.tool_transformer import ToolTransformer
+        from ..transformers.resource_transformer import ResourceTransformer
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        data = request.json or {}
+        session_id = data.get("session_id")
+
+        if not session_id or session_id not in _session_specs:
+            return jsonify({"error": "session_id invalido"}), 400
+
+        spec = _session_specs[session_id]["spec"]
+        selected = data.get("selected", [])
+        service_name = data.get("service_name", "api")
+        service_prefix = data.get("service_prefix", service_name)
+        base_url = data.get("base_url") or spec.get_base_url()
+        mcp_framework = data.get("mcp_framework", "fastmcp")
+
+        try:
+            endpoint_filter = EndpointFilter(selected_endpoints=selected)
+            framework = MCPFramework.FASTMCP if mcp_framework == "fastmcp" else MCPFramework.MCP
+            config = MCPServerConfig(
+                service_name=service_name,
+                service_prefix=service_prefix,
+                base_url=base_url,
+                mcp_framework=framework,
+            )
+
+            tool_transformer = ToolTransformer(service_prefix=service_prefix)
+            tools = tool_transformer.transform(spec, endpoint_filter=endpoint_filter)
+
+            resource_transformer = ResourceTransformer(service_prefix=service_prefix)
+            resources = resource_transformer.transform(spec, tools)
+
+            temp_output = tempfile.mkdtemp()
+            generator = MCPServerGenerator(output_dir=temp_output)
+            result = generator.generate(spec=spec, tools=tools, resources=resources, config=config)
+
+            if result.success:
+                zip_id = str(uuid.uuid4())[:8]
+                _session_specs[f"zip_{zip_id}"] = {
+                    "output_path": result.output_path,
+                    "temp_dir": temp_output,
+                    "zip_filename": f"mcp_server_{service_name}.zip",
+                    "created_at": datetime.now(),
+                }
+
+                return jsonify({
+                    "success": True,
+                    "tools_count": len(result.tools_generated),
+                    "resources_count": len(result.resources_generated),
+                    "download_url": f"/api/download/{zip_id}",
+                    "warnings": result.warnings,
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "errors": result.errors,
+                }), 500
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/v1/webhooks", methods=["GET"])
+    def api_v1_list_webhooks():
+        """Lista webhooks via API."""
+        from flask_login import current_user
+        from .database import Webhook, WorkspaceMember
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+        ws_id = membership.workspace_id if membership else None
+        if not ws_id:
+            return jsonify({"webhooks": []})
+
+        webhooks = Webhook.query.filter_by(workspace_id=ws_id).all()
+        return jsonify({"webhooks": [w.to_dict() for w in webhooks]})
+
     # ========== Admin Routes ==========
 
     @app.route("/admin")
