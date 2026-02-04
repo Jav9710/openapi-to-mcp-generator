@@ -797,13 +797,13 @@ openapi-to-mcp serve --port 8080
 - [x] Vista previa del código MCP generado antes de descargar
 - [x] Syntax highlighting para Python
 - [x] Navegación por archivos generados
-- [ ] Diff viewer para comparar versiones
+- [x] Diff viewer para comparar versiones
 
 #### 📊 Estadísticas Avanzadas ✅
 - [x] Dashboard con métricas de uso
 - [x] Gráficos de endpoints más utilizados
 - [x] Historial de especificaciones recientes (últimas 10)
-- [ ] Tiempo promedio de generación
+- [x] Tiempo promedio de generación
 
 #### 🎯 Performance & DX ✅ NUEVO
 - [x] Cleanup automático de archivos temporales
