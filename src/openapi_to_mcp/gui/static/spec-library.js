@@ -439,12 +439,20 @@ const SpecLibrary = {
         const versions = this.getAllVersions();
         const generations = this.getAllGenerations();
 
+        const genTimes = generations
+            .filter(g => g.stats && g.stats.generation_time != null)
+            .map(g => g.stats.generation_time);
+        const avgGenTime = genTimes.length > 0
+            ? Math.round(genTimes.reduce((a, b) => a + b, 0) / genTimes.length)
+            : null;
+
         return {
             total_specs: specs.length,
             total_versions: versions.length,
             total_generations: generations.length,
             favorites_count: specs.filter(s => s.favorite).length,
             avg_versions_per_spec: specs.length > 0 ? (versions.length / specs.length).toFixed(1) : 0,
+            avg_generation_time: avgGenTime,
             most_recent_spec: specs.length > 0 ? specs.reduce((a, b) => a.updated_at > b.updated_at ? a : b) : null,
             most_generated_spec: this._getMostGeneratedSpec(specs, generations)
         };
@@ -503,7 +511,6 @@ const SpecLibrary = {
     },
 
     _getEndpointsDiff(spec1, spec2, type) {
-        // Simplificado: comparar paths
         const paths1 = Object.keys(spec1.paths || {});
         const paths2 = Object.keys(spec2.paths || {});
 
@@ -512,16 +519,60 @@ const SpecLibrary = {
         } else if (type === 'removed') {
             return paths1.filter(p => !paths2.includes(p));
         } else if (type === 'modified') {
-            return paths1.filter(p => paths2.includes(p) &&
-                JSON.stringify(spec1.paths[p]) !== JSON.stringify(spec2.paths[p]));
+            return paths1
+                .filter(p => paths2.includes(p) &&
+                    JSON.stringify(spec1.paths[p]) !== JSON.stringify(spec2.paths[p]))
+                .map(p => ({
+                    path: p,
+                    details: this._getDetailedEndpointDiff(p, spec1, spec2)
+                }));
         }
         return [];
     },
 
+    _getDetailedEndpointDiff(path, spec1, spec2) {
+        const methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
+        const pathItem1 = spec1.paths[path] || {};
+        const pathItem2 = spec2.paths[path] || {};
+        const changes = [];
+
+        methods.forEach(method => {
+            const op1 = pathItem1[method];
+            const op2 = pathItem2[method];
+
+            if (!op1 && op2) {
+                changes.push({ type: 'method_added', method: method.toUpperCase() });
+            } else if (op1 && !op2) {
+                changes.push({ type: 'method_removed', method: method.toUpperCase() });
+            } else if (op1 && op2 && JSON.stringify(op1) !== JSON.stringify(op2)) {
+                const propChanges = [];
+                if (op1.summary !== op2.summary) propChanges.push('summary');
+                if (op1.description !== op2.description) propChanges.push('description');
+                if (JSON.stringify(op1.parameters || []) !== JSON.stringify(op2.parameters || [])) propChanges.push('parameters');
+                if (JSON.stringify(op1.requestBody) !== JSON.stringify(op2.requestBody)) propChanges.push('requestBody');
+                if (JSON.stringify(op1.responses) !== JSON.stringify(op2.responses)) propChanges.push('responses');
+                if (JSON.stringify(op1.security) !== JSON.stringify(op2.security)) propChanges.push('security');
+                if (op1.deprecated !== op2.deprecated) propChanges.push('deprecated');
+                if (JSON.stringify(op1.tags) !== JSON.stringify(op2.tags)) propChanges.push('tags');
+
+                changes.push({
+                    type: 'method_modified',
+                    method: method.toUpperCase(),
+                    properties: propChanges
+                });
+            }
+        });
+
+        return changes;
+    },
+
     _generateDiffSummary(spec1, spec2) {
-        const added = this._getEndpointsDiff(spec1, spec2, 'added').length;
-        const removed = this._getEndpointsDiff(spec1, spec2, 'removed').length;
-        const modified = this._getEndpointsDiff(spec1, spec2, 'modified').length;
+        const paths1 = Object.keys(spec1.paths || {});
+        const paths2 = Object.keys(spec2.paths || {});
+        const added = paths2.filter(p => !paths1.includes(p)).length;
+        const removed = paths1.filter(p => !paths2.includes(p)).length;
+        const modified = paths1.filter(p => paths2.includes(p) &&
+            JSON.stringify(spec1.paths[p]) !== JSON.stringify(spec2.paths[p])).length;
 
         const parts = [];
         if (added > 0) parts.push(`+${added} nuevos`);

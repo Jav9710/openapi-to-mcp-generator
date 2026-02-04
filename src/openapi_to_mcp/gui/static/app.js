@@ -382,6 +382,11 @@ const StatsManager = {
         const container = document.getElementById('quickStats');
         if (!container) return;
 
+        const libraryStats = (typeof SpecLibrary !== 'undefined') ? SpecLibrary.getStats() : null;
+        const avgTime = libraryStats && libraryStats.avg_generation_time != null
+            ? this.formatGenTime(libraryStats.avg_generation_time)
+            : '--';
+
         const html = `
             <div class="quick-stat">
                 <div class="quick-stat-value">${data.total_endpoints}</div>
@@ -399,9 +404,18 @@ const StatsManager = {
                 <div class="quick-stat-value">${data.security_schemes.length}</div>
                 <div class="quick-stat-label">Security</div>
             </div>
+            <div class="quick-stat">
+                <div class="quick-stat-value">${avgTime}</div>
+                <div class="quick-stat-label">Tiempo Prom.</div>
+            </div>
         `;
 
         container.innerHTML = html;
+    },
+
+    formatGenTime(ms) {
+        if (ms < 1000) return `${ms}ms`;
+        return `${(ms / 1000).toFixed(1)}s`;
     },
 
     toggleExpand() {
