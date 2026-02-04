@@ -110,6 +110,19 @@ def create_app(
     app.config["SECRET_KEY"] = os.urandom(24)
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
 
+    # Configurar base de datos
+    db_path = Path(output_dir) / "openapi_mcp.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+    # Inicializar DB y Auth
+    from .database import init_db
+    from .auth import init_auth, create_default_admin
+    init_db(app)
+    init_auth(app)
+    create_default_admin(app)
+
     # Registrar rutas
     register_routes(app)
 
@@ -167,6 +180,70 @@ def start_background_cleanup():
 
 def register_routes(app: Flask):
     """Registra las rutas de la aplicación."""
+
+    # ========== Auth Routes ==========
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        """Pagina de login."""
+        from flask_login import login_user, current_user
+        from .auth import authenticate_user
+
+        if current_user.is_authenticated:
+            return redirect("/")
+
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+
+            user = authenticate_user(username, password)
+            if user:
+                login_user(user)
+                next_page = request.args.get("next", "/")
+                return redirect(next_page)
+            else:
+                return render_template("login.html", error="Usuario o contrasena incorrectos")
+
+        return render_template("login.html")
+
+    @app.route("/register", methods=["GET", "POST"])
+    def register():
+        """Pagina de registro."""
+        from flask_login import login_user
+        from .auth import register_user
+
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            email = request.form.get("email", "").strip()
+            password = request.form.get("password", "")
+            password_confirm = request.form.get("password_confirm", "")
+
+            if not username or not email or not password:
+                return render_template("register.html", error="Todos los campos son obligatorios")
+
+            if len(password) < 6:
+                return render_template("register.html", error="La contrasena debe tener al menos 6 caracteres")
+
+            if password != password_confirm:
+                return render_template("register.html", error="Las contrasenas no coinciden")
+
+            try:
+                user = register_user(username, email, password)
+                login_user(user)
+                return redirect("/")
+            except ValueError as e:
+                return render_template("register.html", error=str(e))
+
+        return render_template("register.html")
+
+    @app.route("/logout")
+    def logout():
+        """Cerrar sesion."""
+        from flask_login import logout_user
+        logout_user()
+        return redirect("/login")
+
+    # ========== App Routes ==========
 
     @app.route("/")
     def index():
