@@ -17,6 +17,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import uuid
 import webbrowser
 import zipfile
@@ -922,6 +923,8 @@ def register_routes(app: Flask):
         download_zip = data.get("download_zip", False)
 
         try:
+            gen_start_time = time.time()
+
             # Crear filtro
             endpoint_filter = EndpointFilter(selected_endpoints=selected_endpoints)
 
@@ -961,6 +964,8 @@ def register_routes(app: Flask):
                 config=config,
             )
 
+            generation_time = round((time.time() - gen_start_time) * 1000)
+
             if download_zip and result.success:
                 # Crear ZIP
                 zip_filename = f"mcp_server_{service_name}.zip"
@@ -981,6 +986,7 @@ def register_routes(app: Flask):
                     "resources_count": len(result.resources_generated),
                     "warnings": result.warnings,
                     "errors": result.errors,
+                    "generation_time": generation_time,
                     "download_url": f"/api/download/{zip_id}",
                     "zip_filename": zip_filename,
                 })
@@ -992,6 +998,7 @@ def register_routes(app: Flask):
                     "resources_count": len(result.resources_generated),
                     "warnings": result.warnings,
                     "errors": result.errors,
+                    "generation_time": generation_time,
                 })
 
         except Exception as e:

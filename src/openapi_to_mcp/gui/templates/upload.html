@@ -274,6 +274,14 @@
                             </button>
                         </div>
 
+                        <div class="library-avg-time">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                            <span>Tiempo prom.: <strong id="avgGenTime">--</strong></span>
+                        </div>
+
                         <div class="library-actions">
                             <button id="exportLibraryBtn" class="action-btn">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1309,16 +1317,18 @@
                 diffContent.innerHTML = `
                     <div class="diff-header">
                         <div class="diff-version">
-                            <h4>Versión ${diff.version1.version_number}</h4>
+                            <h4>Version ${diff.version1.version_number}</h4>
                             <p>${this.formatDateTime(diff.version1.created_at)}</p>
+                            <span class="diff-endpoint-count">${diff.version1.endpoints_count || '?'} endpoints</span>
                         </div>
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="5" y1="12" x2="19" y2="12"></line>
                             <polyline points="12 5 19 12 12 19"></polyline>
                         </svg>
                         <div class="diff-version">
-                            <h4>Versión ${diff.version2.version_number}</h4>
+                            <h4>Version ${diff.version2.version_number}</h4>
                             <p>${this.formatDateTime(diff.version2.created_at)}</p>
+                            <span class="diff-endpoint-count">${diff.version2.endpoints_count || '?'} endpoints</span>
                         </div>
                     </div>
 
@@ -1330,27 +1340,67 @@
                     <div class="diff-sections">
                         ${diff.endpoints_diff.added.length > 0 ? `
                             <div class="diff-section added">
-                                <h4>✅ Endpoints añadidos (${diff.endpoints_diff.added.length})</h4>
-                                <ul>
-                                    ${diff.endpoints_diff.added.map(path => `<li>${this.escapeHtml(path)}</li>`).join('')}
+                                <h4 class="diff-section-title diff-added-title">Endpoints agregados (${diff.endpoints_diff.added.length})</h4>
+                                <ul class="diff-list">
+                                    ${diff.endpoints_diff.added.map(path => `
+                                        <li class="diff-item diff-item-added">
+                                            <span class="diff-item-icon">+</span>
+                                            <code>${this.escapeHtml(path)}</code>
+                                        </li>
+                                    `).join('')}
                                 </ul>
                             </div>
                         ` : ''}
 
                         ${diff.endpoints_diff.removed.length > 0 ? `
                             <div class="diff-section removed">
-                                <h4>❌ Endpoints eliminados (${diff.endpoints_diff.removed.length})</h4>
-                                <ul>
-                                    ${diff.endpoints_diff.removed.map(path => `<li>${this.escapeHtml(path)}</li>`).join('')}
+                                <h4 class="diff-section-title diff-removed-title">Endpoints eliminados (${diff.endpoints_diff.removed.length})</h4>
+                                <ul class="diff-list">
+                                    ${diff.endpoints_diff.removed.map(path => `
+                                        <li class="diff-item diff-item-removed">
+                                            <span class="diff-item-icon">-</span>
+                                            <code>${this.escapeHtml(path)}</code>
+                                        </li>
+                                    `).join('')}
                                 </ul>
                             </div>
                         ` : ''}
 
                         ${diff.endpoints_diff.modified.length > 0 ? `
                             <div class="diff-section modified">
-                                <h4>📝 Endpoints modificados (${diff.endpoints_diff.modified.length})</h4>
-                                <ul>
-                                    ${diff.endpoints_diff.modified.map(path => `<li>${this.escapeHtml(path)}</li>`).join('')}
+                                <h4 class="diff-section-title diff-modified-title">Endpoints modificados (${diff.endpoints_diff.modified.length})</h4>
+                                <ul class="diff-list">
+                                    ${diff.endpoints_diff.modified.map(item => `
+                                        <li class="diff-item diff-item-modified">
+                                            <div class="diff-item-header" onclick="this.parentElement.classList.toggle('expanded')">
+                                                <span class="diff-item-icon">~</span>
+                                                <code>${this.escapeHtml(item.path)}</code>
+                                                <span class="diff-detail-count">${item.details.length} cambio${item.details.length !== 1 ? 's' : ''}</span>
+                                                <span class="diff-expand-icon">&#9654;</span>
+                                            </div>
+                                            <div class="diff-detail-panel">
+                                                ${item.details.map(d => {
+                                                    if (d.type === 'method_added') {
+                                                        return `<div class="diff-change diff-change-added">
+                                                            <span class="diff-method-badge method-${d.method.toLowerCase()}">${d.method}</span>
+                                                            <span>Metodo agregado</span>
+                                                        </div>`;
+                                                    } else if (d.type === 'method_removed') {
+                                                        return `<div class="diff-change diff-change-removed">
+                                                            <span class="diff-method-badge method-${d.method.toLowerCase()}">${d.method}</span>
+                                                            <span>Metodo eliminado</span>
+                                                        </div>`;
+                                                    } else if (d.type === 'method_modified') {
+                                                        return `<div class="diff-change diff-change-modified">
+                                                            <span class="diff-method-badge method-${d.method.toLowerCase()}">${d.method}</span>
+                                                            <span>Propiedades modificadas: ${d.properties.join(', ')}</span>
+                                                        </div>`;
+                                                    }
+                                                    return '';
+                                                }).join('')}
+                                            </div>
+                                        </li>
+                                    `).join('')}
                                 </ul>
                             </div>
                         ` : ''}
@@ -1407,6 +1457,19 @@
 
                 document.getElementById('countAll').textContent = all.length;
                 document.getElementById('countFavorites').textContent = favorites.length;
+
+                const stats = SpecLibrary.getStats();
+                const avgTimeEl = document.getElementById('avgGenTime');
+                if (avgTimeEl) {
+                    if (stats.avg_generation_time != null) {
+                        const formatted = stats.avg_generation_time < 1000
+                            ? `${stats.avg_generation_time}ms`
+                            : `${(stats.avg_generation_time / 1000).toFixed(1)}s`;
+                        avgTimeEl.textContent = formatted;
+                    } else {
+                        avgTimeEl.textContent = '--';
+                    }
+                }
             },
 
             exportLibrary() {
