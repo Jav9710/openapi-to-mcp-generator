@@ -243,6 +243,183 @@ def register_routes(app: Flask):
         logout_user()
         return redirect("/login")
 
+    # ========== Workspace Routes ==========
+
+    @app.route("/api/workspaces", methods=["GET"])
+    def list_workspaces():
+        """Lista los workspaces del usuario actual."""
+        from flask_login import current_user
+        from .database import Workspace, WorkspaceMember
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        memberships = WorkspaceMember.query.filter_by(user_id=current_user.id).all()
+        ws_ids = [m.workspace_id for m in memberships]
+        workspaces = Workspace.query.filter(Workspace.id.in_(ws_ids)).all()
+        return jsonify({"workspaces": [w.to_dict() for w in workspaces]})
+
+    @app.route("/api/workspaces", methods=["POST"])
+    def create_workspace():
+        """Crea un nuevo workspace."""
+        from flask_login import current_user
+        from .database import db, Workspace, WorkspaceMember, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        data = request.json
+        name = data.get("name", "").strip()
+        if not name:
+            return jsonify({"error": "El nombre es requerido"}), 400
+
+        ws = Workspace(name=name, description=data.get("description", ""), created_by=current_user.id)
+        db.session.add(ws)
+        db.session.flush()
+
+        member = WorkspaceMember(user_id=current_user.id, workspace_id=ws.id, role=UserRole.ADMIN)
+        db.session.add(member)
+        db.session.commit()
+
+        _log_activity(current_user.id, ws.id, "workspace_created", "workspace", ws.name)
+        return jsonify({"success": True, "workspace": ws.to_dict()})
+
+    @app.route("/api/workspaces/<int:ws_id>", methods=["PUT"])
+    def update_workspace(ws_id):
+        """Actualiza un workspace."""
+        from flask_login import current_user
+        from .database import db, Workspace
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        ws = db.session.get(Workspace, ws_id)
+        if not ws:
+            return jsonify({"error": "Workspace no encontrado"}), 404
+
+        data = request.json
+        if "name" in data:
+            ws.name = data["name"].strip()
+        if "description" in data:
+            ws.description = data["description"]
+        db.session.commit()
+        return jsonify({"success": True, "workspace": ws.to_dict()})
+
+    @app.route("/api/workspaces/<int:ws_id>", methods=["DELETE"])
+    def delete_workspace(ws_id):
+        """Elimina un workspace."""
+        from flask_login import current_user
+        from .database import db, Workspace, WorkspaceMember, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        ws = db.session.get(Workspace, ws_id)
+        if not ws:
+            return jsonify({"error": "Workspace no encontrado"}), 404
+
+        membership = WorkspaceMember.query.filter_by(
+            user_id=current_user.id, workspace_id=ws_id
+        ).first()
+        if not membership or membership.role != UserRole.ADMIN:
+            return jsonify({"error": "Solo el admin del workspace puede eliminarlo"}), 403
+
+        db.session.delete(ws)
+        db.session.commit()
+        return jsonify({"success": True})
+
+    @app.route("/api/workspaces/<int:ws_id>/members", methods=["GET"])
+    def list_workspace_members(ws_id):
+        """Lista los miembros de un workspace."""
+        from flask_login import current_user
+        from .database import WorkspaceMember
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        members = WorkspaceMember.query.filter_by(workspace_id=ws_id).all()
+        return jsonify({"members": [m.to_dict() for m in members]})
+
+    @app.route("/api/workspaces/<int:ws_id>/members", methods=["POST"])
+    def add_workspace_member(ws_id):
+        """Agrega un miembro a un workspace."""
+        from flask_login import current_user
+        from .database import db, User, WorkspaceMember, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        data = request.json
+        username = data.get("username", "").strip()
+        role = data.get("role", "editor")
+
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            return jsonify({"error": "Usuario no encontrado"}), 404
+
+        existing = WorkspaceMember.query.filter_by(user_id=user.id, workspace_id=ws_id).first()
+        if existing:
+            return jsonify({"error": "El usuario ya es miembro"}), 400
+
+        member = WorkspaceMember(user_id=user.id, workspace_id=ws_id, role=UserRole(role))
+        db.session.add(member)
+        db.session.commit()
+
+        _log_activity(current_user.id, ws_id, "member_added", "workspace", f"{username} como {role}")
+        return jsonify({"success": True, "member": member.to_dict()})
+
+    @app.route("/api/workspaces/<int:ws_id>/members/<int:user_id>", methods=["DELETE"])
+    def remove_workspace_member(ws_id, user_id):
+        """Elimina un miembro de un workspace."""
+        from flask_login import current_user
+        from .database import db, WorkspaceMember
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        member = WorkspaceMember.query.filter_by(user_id=user_id, workspace_id=ws_id).first()
+        if not member:
+            return jsonify({"error": "Miembro no encontrado"}), 404
+
+        db.session.delete(member)
+        db.session.commit()
+        return jsonify({"success": True})
+
+    # ========== Activity Routes ==========
+
+    @app.route("/api/activity", methods=["GET"])
+    def get_activity():
+        """Obtiene el log de actividad."""
+        from flask_login import current_user
+        from .database import ActivityLog
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        ws_id = request.args.get("workspace_id", type=int)
+        limit = request.args.get("limit", 50, type=int)
+
+        query = ActivityLog.query
+        if ws_id:
+            query = query.filter_by(workspace_id=ws_id)
+
+        activities = query.order_by(ActivityLog.created_at.desc()).limit(limit).all()
+        return jsonify({"activities": [a.to_dict() for a in activities]})
+
+    def _log_activity(user_id, workspace_id, action, resource_type=None, resource_name=None, details=None):
+        """Helper para registrar actividad."""
+        from .database import db, ActivityLog
+        activity = ActivityLog(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            action=action,
+            resource_type=resource_type,
+            resource_name=resource_name,
+            details=details,
+        )
+        db.session.add(activity)
+        db.session.commit()
+
     # ========== Admin Routes ==========
 
     @app.route("/admin")
