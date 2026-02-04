@@ -243,6 +243,79 @@ def register_routes(app: Flask):
         logout_user()
         return redirect("/login")
 
+    # ========== Admin Routes ==========
+
+    @app.route("/admin")
+    def admin_panel():
+        """Panel de administracion."""
+        from flask_login import current_user
+        from .auth import admin_required as _admin_check
+        from .database import UserRole
+
+        if not current_user.is_authenticated:
+            return redirect("/login")
+        if not current_user.has_role(UserRole.ADMIN):
+            return redirect("/")
+        return render_template("admin.html")
+
+    @app.route("/api/admin/users")
+    def admin_list_users():
+        """Lista todos los usuarios (solo admin)."""
+        from flask_login import current_user
+        from .database import User, UserRole
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        users = User.query.order_by(User.created_at.desc()).all()
+        return jsonify({"users": [u.to_dict() for u in users]})
+
+    @app.route("/api/admin/users/<int:user_id>/role", methods=["PUT"])
+    def admin_change_role(user_id):
+        """Cambia el rol de un usuario."""
+        from flask_login import current_user
+        from .database import db, User, UserRole
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "Usuario no encontrado"}), 404
+
+        if user.username == "admin":
+            return jsonify({"error": "No se puede cambiar el rol del admin principal"}), 400
+
+        data = request.json
+        new_role = data.get("role")
+        try:
+            user.role = UserRole(new_role)
+            db.session.commit()
+            return jsonify({"success": True})
+        except (ValueError, KeyError):
+            return jsonify({"error": "Rol invalido"}), 400
+
+    @app.route("/api/admin/users/<int:user_id>/status", methods=["PUT"])
+    def admin_toggle_status(user_id):
+        """Activa/desactiva un usuario."""
+        from flask_login import current_user
+        from .database import db, User, UserRole
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "Usuario no encontrado"}), 404
+
+        if user.username == "admin":
+            return jsonify({"error": "No se puede desactivar el admin principal"}), 400
+
+        data = request.json
+        user.is_active = data.get("is_active", True)
+        db.session.commit()
+        return jsonify({"success": True})
+
     # ========== App Routes ==========
 
     @app.route("/")

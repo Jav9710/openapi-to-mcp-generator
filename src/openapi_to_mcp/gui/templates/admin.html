@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - OpenAPI to MCP Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .admin-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 32px 20px;
+        }
+        .admin-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+        }
+        .admin-header h1 {
+            font-size: 1.6rem;
+            color: var(--text-primary);
+            margin: 0;
+        }
+        .admin-nav {
+            display: flex;
+            gap: 12px;
+        }
+        .admin-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            transition: background 0.15s;
+        }
+        .admin-nav a:hover {
+            background: var(--bg-secondary, rgba(0,0,0,0.05));
+            color: var(--text-primary);
+        }
+        .admin-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .admin-section h2 {
+            font-size: 1.1rem;
+            margin: 0 0 20px;
+            color: var(--text-primary);
+        }
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .users-table th {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 2px solid var(--border-color);
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .users-table td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+        .users-table tr:last-child td {
+            border-bottom: none;
+        }
+        .role-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .role-admin { background: rgba(239,68,68,0.1); color: #dc2626; }
+        .role-editor { background: rgba(59,130,246,0.1); color: #2563eb; }
+        .role-viewer { background: rgba(107,114,128,0.1); color: #6b7280; }
+        .status-active { color: #16a34a; }
+        .status-inactive { color: #dc2626; }
+        .action-btn-sm {
+            padding: 4px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--card-bg);
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .action-btn-sm:hover {
+            background: var(--bg-secondary, rgba(0,0,0,0.05));
+        }
+        .action-btn-sm.danger { color: #dc2626; border-color: rgba(239,68,68,0.3); }
+        .action-btn-sm.danger:hover { background: rgba(239,68,68,0.1); }
+        select.role-select {
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--card-bg);
+            color: var(--text-primary);
+            font-size: 0.8rem;
+        }
+        .admin-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .admin-stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .admin-stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary-color, #3b82f6);
+        }
+        .admin-stat-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
+        .toast {
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.success { background: #16a34a; color: #fff; }
+        .toast.error { background: #dc2626; color: #fff; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1>Panel de Administracion</h1>
+            <div class="admin-nav">
+                <a href="/">Volver a la app</a>
+                <a href="/logout">Cerrar sesion</a>
+            </div>
+        </div>
+
+        <div class="admin-stats" id="adminStats">
+            <!-- Stats loaded via JS -->
+        </div>
+
+        <div class="admin-section">
+            <h2>Gestion de Usuarios</h2>
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>Usuario</th>
+                        <th>Email</th>
+                        <th>Rol</th>
+                        <th>Estado</th>
+                        <th>Ultimo login</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                    <!-- Users loaded via JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        function showToast(msg, type) {
+            const c = document.getElementById('toastContainer');
+            const t = document.createElement('div');
+            t.className = `toast ${type}`;
+            t.textContent = msg;
+            c.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+
+        async function loadUsers() {
+            const res = await fetch('/api/admin/users');
+            const data = await res.json();
+            const tbody = document.getElementById('usersTableBody');
+
+            tbody.innerHTML = data.users.map(u => `
+                <tr>
+                    <td><strong>${u.username}</strong></td>
+                    <td>${u.email}</td>
+                    <td>
+                        <select class="role-select" onchange="changeRole(${u.id}, this.value)"
+                                ${u.username === 'admin' ? 'disabled' : ''}>
+                            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+                            <option value="editor" ${u.role === 'editor' ? 'selected' : ''}>Editor</option>
+                            <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+                        </select>
+                    </td>
+                    <td>
+                        <span class="${u.is_active ? 'status-active' : 'status-inactive'}">
+                            ${u.is_active ? 'Activo' : 'Inactivo'}
+                        </span>
+                    </td>
+                    <td>${u.last_login ? new Date(u.last_login).toLocaleDateString('es-ES') : 'Nunca'}</td>
+                    <td>
+                        ${u.username !== 'admin' ? `
+                            <button class="action-btn-sm ${u.is_active ? 'danger' : ''}"
+                                    onclick="toggleUserStatus(${u.id}, ${!u.is_active})">
+                                ${u.is_active ? 'Desactivar' : 'Activar'}
+                            </button>
+                        ` : ''}
+                    </td>
+                </tr>
+            `).join('');
+
+            // Stats
+            const stats = document.getElementById('adminStats');
+            const total = data.users.length;
+            const active = data.users.filter(u => u.is_active).length;
+            const admins = data.users.filter(u => u.role === 'admin').length;
+
+            stats.innerHTML = `
+                <div class="admin-stat-card">
+                    <div class="admin-stat-value">${total}</div>
+                    <div class="admin-stat-label">Usuarios totales</div>
+                </div>
+                <div class="admin-stat-card">
+                    <div class="admin-stat-value">${active}</div>
+                    <div class="admin-stat-label">Activos</div>
+                </div>
+                <div class="admin-stat-card">
+                    <div class="admin-stat-value">${admins}</div>
+                    <div class="admin-stat-label">Admins</div>
+                </div>
+            `;
+        }
+
+        async function changeRole(userId, newRole) {
+            const res = await fetch(`/api/admin/users/${userId}/role`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: newRole })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('Rol actualizado', 'success');
+            } else {
+                showToast(data.error || 'Error', 'error');
+                loadUsers();
+            }
+        }
+
+        async function toggleUserStatus(userId, activate) {
+            const res = await fetch(`/api/admin/users/${userId}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: activate })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(activate ? 'Usuario activado' : 'Usuario desactivado', 'success');
+                loadUsers();
+            } else {
+                showToast(data.error || 'Error', 'error');
+            }
+        }
+
+        // Theme
+        const saved = localStorage.getItem('openapi-mcp-theme');
+        if (saved) document.documentElement.setAttribute('data-theme', saved);
+        else if (window.matchMedia('(prefers-color-scheme: dark)').matches)
+            document.documentElement.setAttribute('data-theme', 'dark');
+
+        loadUsers();
+    </script>
+</body>
+</html>
