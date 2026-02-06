@@ -1794,6 +1794,131 @@ def register_routes(app: Flask):
         else:
             return jsonify({"error": "Encrypted spec not found"}), 404
 
+    # ========== Data Retention Routes ==========
+
+    @app.route("/api/retention/policies")
+    def list_retention_policies_route():
+        """List all retention policies."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import list_retention_policies
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        workspace_id = request.args.get("workspace_id", type=int)
+        policies = list_retention_policies(workspace_id)
+        return jsonify({"policies": policies})
+
+    @app.route("/api/retention/policies", methods=["POST"])
+    def set_retention_policy_route():
+        """Set or update a retention policy."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import set_retention_policy, DataType, RetentionAction
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        data_type_str = data.get("data_type")
+        retention_days = data.get("retention_days")
+        action_str = data.get("action", "delete")
+        workspace_id = data.get("workspace_id")
+
+        if not data_type_str or retention_days is None:
+            return jsonify({"error": "data_type and retention_days are required"}), 400
+
+        try:
+            data_type = DataType(data_type_str)
+            action = RetentionAction(action_str)
+        except ValueError:
+            return jsonify({"error": "Invalid data_type or action"}), 400
+
+        policy = set_retention_policy(
+            data_type=data_type,
+            retention_days=retention_days,
+            action=action,
+            workspace_id=workspace_id,
+            user_id=current_user.id,
+        )
+
+        return jsonify({"success": True, "policy": policy.to_dict()})
+
+    @app.route("/api/retention/apply", methods=["POST"])
+    def apply_retention_route():
+        """Apply retention policies."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import apply_retention_policy, apply_all_retention_policies, DataType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        data_type_str = data.get("data_type")
+        workspace_id = data.get("workspace_id")
+        dry_run = data.get("dry_run", False)
+
+        if data_type_str:
+            try:
+                data_type = DataType(data_type_str)
+            except ValueError:
+                return jsonify({"error": "Invalid data_type"}), 400
+
+            result = apply_retention_policy(data_type, workspace_id, dry_run)
+            return jsonify(result)
+        else:
+            results = apply_all_retention_policies(workspace_id, dry_run)
+            return jsonify({"results": results})
+
+    @app.route("/api/retention/stats")
+    def get_retention_stats_route():
+        """Get retention statistics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import get_retention_stats
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        stats = get_retention_stats()
+        return jsonify({"stats": stats})
+
+    @app.route("/api/retention/history")
+    def get_retention_history_route():
+        """Get retention execution history."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import get_execution_history, DataType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data_type_str = request.args.get("data_type")
+        limit = request.args.get("limit", 100, type=int)
+
+        data_type = None
+        if data_type_str:
+            try:
+                data_type = DataType(data_type_str)
+            except ValueError:
+                pass
+
+        history = get_execution_history(data_type, min(limit, 500))
+        return jsonify({"history": [h.to_dict() for h in history]})
+
+    @app.route("/api/retention/data-types")
+    def get_data_types_route():
+        """Get available data types for retention policies."""
+        from .retention import DataType, RetentionAction, DEFAULT_RETENTION
+
+        return jsonify({
+            "data_types": [dt.value for dt in DataType],
+            "actions": [a.value for a in RetentionAction],
+            "defaults": {dt.value: days for dt, days in DEFAULT_RETENTION.items()},
+        })
+
     # ========== App Routes ==========
 
     @app.route("/")

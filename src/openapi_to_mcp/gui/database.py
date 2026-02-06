@@ -286,4 +286,5 @@ def init_db(app):
         # Import models to register with SQLAlchemy
         from .audit import AuditLog  # noqa: F401
         from .encryption import EncryptedSpec, MasterKey  # noqa: F401
+        from .retention import RetentionPolicy, RetentionExecution  # noqa: F401
         db.create_all()
