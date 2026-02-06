@@ -221,6 +221,7 @@ def register_routes(app: Flask):
         """Pagina de login."""
         from flask_login import login_user, current_user
         from .auth import authenticate_user
+        from .audit import log_audit, AuditAction
 
         if current_user.is_authenticated:
             return redirect("/")
@@ -232,9 +233,24 @@ def register_routes(app: Flask):
             user = authenticate_user(username, password)
             if user:
                 login_user(user)
+                log_audit(
+                    action=AuditAction.LOGIN_SUCCESS,
+                    resource_type="user",
+                    resource_id=str(user.id),
+                    resource_name=user.username,
+                    user_id=user.id,
+                    username=user.username,
+                )
                 next_page = request.args.get("next", "/")
                 return redirect(next_page)
             else:
+                log_audit(
+                    action=AuditAction.LOGIN_FAILED,
+                    resource_type="user",
+                    resource_name=username,
+                    success=False,
+                    error_message="Invalid credentials",
+                )
                 return render_template("login.html", error="Usuario o contrasena incorrectos")
 
         return render_template("login.html")
@@ -244,6 +260,7 @@ def register_routes(app: Flask):
         """Pagina de registro."""
         from flask_login import login_user
         from .auth import register_user
+        from .audit import log_audit, AuditAction
 
         if request.method == "POST":
             username = request.form.get("username", "").strip()
@@ -263,6 +280,15 @@ def register_routes(app: Flask):
             try:
                 user = register_user(username, email, password)
                 login_user(user)
+                log_audit(
+                    action=AuditAction.USER_CREATED,
+                    resource_type="user",
+                    resource_id=str(user.id),
+                    resource_name=user.username,
+                    user_id=user.id,
+                    username=user.username,
+                    details={"email": email},
+                )
                 return redirect("/")
             except ValueError as e:
                 return render_template("register.html", error=str(e))
@@ -272,7 +298,16 @@ def register_routes(app: Flask):
     @app.route("/logout")
     def logout():
         """Cerrar sesion."""
-        from flask_login import logout_user
+        from flask_login import logout_user, current_user
+        from .audit import log_audit, AuditAction
+
+        if current_user.is_authenticated:
+            log_audit(
+                action=AuditAction.LOGOUT,
+                resource_type="user",
+                resource_id=str(current_user.id),
+                resource_name=current_user.username,
+            )
         logout_user()
         return redirect("/login")
 
@@ -1431,6 +1466,147 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"success": True})
 
+    # ========== Audit Log Routes ==========
+
+    @app.route("/api/audit/logs")
+    def get_audit_logs():
+        """Get audit logs with filtering (admin only)."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .audit import query_audit_logs, AuditAction, AuditSeverity
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        # Parse filters from query params
+        user_id = request.args.get("user_id", type=int)
+        workspace_id = request.args.get("workspace_id", type=int)
+        action = request.args.get("action")
+        severity = request.args.get("severity")
+        resource_type = request.args.get("resource_type")
+        success = request.args.get("success")
+        limit = request.args.get("limit", 100, type=int)
+        offset = request.args.get("offset", 0, type=int)
+
+        # Parse dates
+        start_date = None
+        end_date = None
+        if request.args.get("start_date"):
+            try:
+                start_date = datetime.fromisoformat(request.args.get("start_date"))
+            except ValueError:
+                pass
+        if request.args.get("end_date"):
+            try:
+                end_date = datetime.fromisoformat(request.args.get("end_date"))
+            except ValueError:
+                pass
+
+        # Convert string params to enums
+        action_enum = None
+        if action:
+            try:
+                action_enum = AuditAction(action)
+            except ValueError:
+                pass
+
+        severity_enum = None
+        if severity:
+            try:
+                severity_enum = AuditSeverity(severity)
+            except ValueError:
+                pass
+
+        success_bool = None
+        if success is not None:
+            success_bool = success.lower() == "true"
+
+        logs, total = query_audit_logs(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            action=action_enum,
+            severity=severity_enum,
+            resource_type=resource_type,
+            start_date=start_date,
+            end_date=end_date,
+            success=success_bool,
+            limit=min(limit, 500),
+            offset=offset,
+        )
+
+        return jsonify({
+            "logs": [log.to_dict() for log in logs],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        })
+
+    @app.route("/api/audit/summary")
+    def get_audit_summary():
+        """Get audit summary statistics (admin only)."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .audit import get_audit_summary
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        summary = get_audit_summary(days=min(days, 365))
+        return jsonify(summary)
+
+    @app.route("/api/audit/export")
+    def export_audit_logs():
+        """Export audit logs (admin only)."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .audit import export_audit_logs as do_export, log_audit, AuditAction
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        format = request.args.get("format", "json")
+        if format not in ("json", "csv"):
+            return jsonify({"error": "Invalid format. Use 'json' or 'csv'"}), 400
+
+        # Get filters
+        user_id = request.args.get("user_id", type=int)
+        workspace_id = request.args.get("workspace_id", type=int)
+
+        data = do_export(format=format, user_id=user_id, workspace_id=workspace_id)
+
+        # Log the export action
+        log_audit(
+            action=AuditAction.AUDIT_LOG_EXPORTED,
+            resource_type="audit_log",
+            details={"format": format, "user_id": user_id, "workspace_id": workspace_id}
+        )
+
+        if format == "csv":
+            return send_file(
+                io.BytesIO(data.encode("utf-8")),
+                mimetype="text/csv",
+                as_attachment=True,
+                download_name=f"audit_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+        else:
+            return send_file(
+                io.BytesIO(data.encode("utf-8")),
+                mimetype="application/json",
+                as_attachment=True,
+                download_name=f"audit_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            )
+
+    @app.route("/api/audit/actions")
+    def get_audit_actions():
+        """Get available audit action types."""
+        from .audit import AuditAction, AuditSeverity
+
+        return jsonify({
+            "actions": [a.value for a in AuditAction],
+            "severities": [s.value for s in AuditSeverity],
+        })
+
     # ========== App Routes ==========
 
     @app.route("/")
@@ -1542,6 +1718,23 @@ def register_routes(app: Flask):
                             "spec", spec.title or file.filename,
                             f"{stats['total']} endpoints"
                         )
+            except Exception:
+                pass
+
+            # Enterprise audit logging
+            try:
+                from .audit import log_audit, AuditAction
+                log_audit(
+                    action=AuditAction.SPEC_UPLOADED,
+                    resource_type="spec",
+                    resource_id=session_id,
+                    resource_name=spec.title or file.filename,
+                    details={
+                        "filename": file.filename,
+                        "endpoints_count": stats["total"],
+                        "version": spec.version,
+                    }
+                )
             except Exception:
                 pass
 
@@ -2265,6 +2458,25 @@ def register_routes(app: Flask):
                             )
                 except Exception:
                     pass
+
+            # Enterprise audit logging
+            try:
+                from .audit import log_audit, AuditAction
+                log_audit(
+                    action=AuditAction.MCP_GENERATED if result.success else AuditAction.MCP_GENERATION_FAILED,
+                    resource_type="mcp_server",
+                    resource_name=service_name,
+                    success=result.success,
+                    details={
+                        "framework": mcp_framework,
+                        "tools_count": len(result.tools_generated) if result.success else 0,
+                        "endpoints_count": len(selected_endpoints),
+                        "generation_time_ms": generation_time,
+                    },
+                    error_message="; ".join(result.errors) if result.errors else None,
+                )
+            except Exception:
+                pass
 
             generation_time = round((time.time() - gen_start_time) * 1000)
 
