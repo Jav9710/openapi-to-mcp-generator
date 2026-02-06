@@ -112,9 +112,11 @@ def create_app(
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
 
     # Configurar base de datos
-    db_path = Path(output_dir) / "openapi_mcp.db"
+    db_path = Path(output_dir).resolve() / "openapi_mcp.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
+    # SQLite URI needs forward slashes on Windows
+    db_uri = f"sqlite:///{db_path.as_posix()}"
+    app.config["SQLALCHEMY_DATABASE_URI"] = db_uri
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     # Inicializar DB y Auth
