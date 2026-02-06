@@ -832,6 +832,259 @@ def register_routes(app: Flask):
         webhooks = Webhook.query.filter_by(workspace_id=ws_id).all()
         return jsonify({"webhooks": [w.to_dict() for w in webhooks]})
 
+    # ========== GitHub Integration Routes ==========
+
+    @app.route("/api/integrations/github/repos", methods=["GET"])
+    def github_list_repos():
+        """Lista repositorios de GitHub del usuario."""
+        from flask_login import current_user
+        from .integrations import GitHubIntegration
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        token = request.headers.get("X-GitHub-Token") or request.args.get("token")
+        if not token:
+            return jsonify({"error": "Token de GitHub requerido (header X-GitHub-Token)"}), 400
+
+        try:
+            gh = GitHubIntegration(token)
+            repos = gh.list_repos()
+            return jsonify({"repos": [r.to_dict() for r in repos]})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/integrations/github/branches", methods=["GET"])
+    def github_list_branches():
+        """Lista branches de un repositorio GitHub."""
+        from flask_login import current_user
+        from .integrations import GitHubIntegration
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        token = request.headers.get("X-GitHub-Token")
+        repo = request.args.get("repo")
+        if not token or not repo:
+            return jsonify({"error": "Token y repo son requeridos"}), 400
+
+        try:
+            gh = GitHubIntegration(token)
+            branches = gh.list_branches(repo)
+            return jsonify({"branches": branches})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/integrations/github/files", methods=["GET"])
+    def github_find_files():
+        """Busca archivos OpenAPI en un repositorio GitHub."""
+        from flask_login import current_user
+        from .integrations import GitHubIntegration
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        token = request.headers.get("X-GitHub-Token")
+        repo = request.args.get("repo")
+        branch = request.args.get("branch")
+        if not token or not repo:
+            return jsonify({"error": "Token y repo son requeridos"}), 400
+
+        try:
+            gh = GitHubIntegration(token)
+            files = gh.find_openapi_files(repo, branch)
+            return jsonify({"files": [f.to_dict() for f in files]})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/integrations/github/fetch", methods=["POST"])
+    def github_fetch_spec():
+        """Descarga e importa un spec desde GitHub."""
+        from flask_login import current_user
+        from .integrations import GitHubIntegration
+        from ..parsers.openapi_parser import OpenAPIParser
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        data = request.json or {}
+        token = request.headers.get("X-GitHub-Token") or data.get("token")
+        repo = data.get("repo")
+        file_path = data.get("file_path")
+        branch = data.get("branch")
+
+        if not token or not repo or not file_path:
+            return jsonify({"error": "Token, repo y file_path son requeridos"}), 400
+
+        try:
+            gh = GitHubIntegration(token)
+            content = gh.fetch_file_content(repo, file_path, branch)
+
+            # Guardar y parsear
+            filename = file_path.split("/")[-1]
+            temp_dir = tempfile.mkdtemp()
+            temp_path = Path(temp_dir) / filename
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            parser = OpenAPIParser(strict_validation=False)
+            spec = parser.parse(str(temp_path))
+
+            session_id = str(uuid.uuid4())[:8]
+            _session_specs[session_id] = {
+                "spec": spec,
+                "spec_path": str(temp_path),
+                "temp_dir": temp_dir,
+                "filename": filename,
+                "source_repo": repo,
+                "source_branch": branch,
+                "source_file": file_path,
+                "created_at": datetime.now(),
+            }
+
+            from ..endpoint_selector import EndpointSelector
+            selector = EndpointSelector(spec, include_deprecated=True)
+            stats = selector.get_stats()
+
+            return jsonify({
+                "success": True,
+                "session_id": session_id,
+                "title": spec.title,
+                "version": spec.version,
+                "endpoints_count": stats["total"],
+                "redirect_url": f"/selector?session={session_id}",
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    # ========== GitLab Integration Routes ==========
+
+    @app.route("/api/integrations/gitlab/repos", methods=["GET"])
+    def gitlab_list_repos():
+        """Lista proyectos de GitLab del usuario."""
+        from flask_login import current_user
+        from .integrations import GitLabIntegration
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        token = request.headers.get("X-GitLab-Token") or request.args.get("token")
+        base_url = request.args.get("base_url")
+        if not token:
+            return jsonify({"error": "Token de GitLab requerido (header X-GitLab-Token)"}), 400
+
+        try:
+            gl = GitLabIntegration(token, base_url) if base_url else GitLabIntegration(token)
+            repos = gl.list_repos()
+            return jsonify({"repos": [r.to_dict() for r in repos]})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/integrations/gitlab/branches", methods=["GET"])
+    def gitlab_list_branches():
+        """Lista branches de un proyecto GitLab."""
+        from flask_login import current_user
+        from .integrations import GitLabIntegration
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        token = request.headers.get("X-GitLab-Token")
+        project = request.args.get("project")
+        base_url = request.args.get("base_url")
+        if not token or not project:
+            return jsonify({"error": "Token y project son requeridos"}), 400
+
+        try:
+            gl = GitLabIntegration(token, base_url) if base_url else GitLabIntegration(token)
+            branches = gl.list_branches(project)
+            return jsonify({"branches": branches})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/integrations/gitlab/files", methods=["GET"])
+    def gitlab_find_files():
+        """Busca archivos OpenAPI en un proyecto GitLab."""
+        from flask_login import current_user
+        from .integrations import GitLabIntegration
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        token = request.headers.get("X-GitLab-Token")
+        project = request.args.get("project")
+        branch = request.args.get("branch")
+        base_url = request.args.get("base_url")
+        if not token or not project:
+            return jsonify({"error": "Token y project son requeridos"}), 400
+
+        try:
+            gl = GitLabIntegration(token, base_url) if base_url else GitLabIntegration(token)
+            files = gl.find_openapi_files(project, branch)
+            return jsonify({"files": [f.to_dict() for f in files]})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/integrations/gitlab/fetch", methods=["POST"])
+    def gitlab_fetch_spec():
+        """Descarga e importa un spec desde GitLab."""
+        from flask_login import current_user
+        from .integrations import GitLabIntegration
+        from ..parsers.openapi_parser import OpenAPIParser
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        data = request.json or {}
+        token = request.headers.get("X-GitLab-Token") or data.get("token")
+        project = data.get("project")
+        file_path = data.get("file_path")
+        branch = data.get("branch")
+        base_url = data.get("base_url")
+
+        if not token or not project or not file_path:
+            return jsonify({"error": "Token, project y file_path son requeridos"}), 400
+
+        try:
+            gl = GitLabIntegration(token, base_url) if base_url else GitLabIntegration(token)
+            content = gl.fetch_file_content(project, file_path, branch)
+
+            filename = file_path.split("/")[-1]
+            temp_dir = tempfile.mkdtemp()
+            temp_path = Path(temp_dir) / filename
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            parser = OpenAPIParser(strict_validation=False)
+            spec = parser.parse(str(temp_path))
+
+            session_id = str(uuid.uuid4())[:8]
+            _session_specs[session_id] = {
+                "spec": spec,
+                "spec_path": str(temp_path),
+                "temp_dir": temp_dir,
+                "filename": filename,
+                "source_project": project,
+                "source_branch": branch,
+                "source_file": file_path,
+                "created_at": datetime.now(),
+            }
+
+            from ..endpoint_selector import EndpointSelector
+            selector = EndpointSelector(spec, include_deprecated=True)
+            stats = selector.get_stats()
+
+            return jsonify({
+                "success": True,
+                "session_id": session_id,
+                "title": spec.title,
+                "version": spec.version,
+                "endpoints_count": stats["total"],
+                "redirect_url": f"/selector?session={session_id}",
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
     # ========== Admin Routes ==========
 
     @app.route("/admin")
