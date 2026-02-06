@@ -101,6 +101,10 @@ class MCPServerGenerator:
         Returns:
             GenerationResult con información de la generación
         """
+        # Delegar a generador TypeScript si corresponde
+        if config.mcp_framework == MCPFramework.TYPESCRIPT:
+            return self._generate_typescript(spec, tools, resources, config, progress_callback)
+
         warnings = []
         errors = []
 
@@ -177,6 +181,35 @@ class MCPServerGenerator:
                 errors=errors,
                 warnings=warnings,
             )
+
+    def _generate_typescript(
+        self,
+        spec: OpenAPISpec,
+        tools: list[MCPTool],
+        resources: list[MCPResource],
+        config: MCPServerConfig,
+        progress_callback: Callable[[str, int, int], None] | None = None,
+    ) -> GenerationResult:
+        """Genera servidor TypeScript delegando al TypeScriptGenerator."""
+        from .typescript_generator import TypeScriptGenerator
+
+        if progress_callback:
+            progress_callback("Generando servidor TypeScript", 1, 3)
+
+        ts_generator = TypeScriptGenerator(str(self.output_dir))
+        result = ts_generator.generate(spec, tools, resources, config)
+
+        if progress_callback:
+            progress_callback("Finalizando", 3, 3)
+
+        return GenerationResult(
+            success=result.success,
+            output_path=result.output_path,
+            tools_generated=[t.name for t in tools],
+            resources_generated=[r.name for r in resources],
+            errors=result.errors,
+            warnings=[],
+        )
 
     def generate_preview(
         self,

@@ -39,8 +39,9 @@ class SecuritySchemeType(Enum):
 
 class MCPFramework(Enum):
     """Framework MCP a utilizar para el servidor generado."""
-    FASTMCP = "fastmcp"  # FastMCP - API simplificada con decoradores (recomendado)
-    MCP = "mcp"          # MCP estándar - API de bajo nivel
+    FASTMCP = "fastmcp"      # FastMCP - API simplificada con decoradores (recomendado)
+    MCP = "mcp"              # MCP estándar - API de bajo nivel
+    TYPESCRIPT = "typescript"  # TypeScript con @modelcontextprotocol/sdk
 
 
 @dataclass

@@ -772,7 +772,8 @@ def register_routes(app: Flask):
 
         try:
             endpoint_filter = EndpointFilter(selected_endpoints=selected)
-            framework = MCPFramework.FASTMCP if mcp_framework == "fastmcp" else MCPFramework.MCP
+            framework_map = {"fastmcp": MCPFramework.FASTMCP, "mcp": MCPFramework.MCP, "typescript": MCPFramework.TYPESCRIPT}
+            framework = framework_map.get(mcp_framework, MCPFramework.FASTMCP)
             config = MCPServerConfig(
                 service_name=service_name,
                 service_prefix=service_prefix,
@@ -2125,7 +2126,8 @@ def register_routes(app: Flask):
             endpoint_filter = EndpointFilter(selected_endpoints=selected_endpoints)
 
             # Configuración
-            framework = MCPFramework.FASTMCP if mcp_framework == "fastmcp" else MCPFramework.MCP
+            framework_map = {"fastmcp": MCPFramework.FASTMCP, "mcp": MCPFramework.MCP, "typescript": MCPFramework.TYPESCRIPT}
+            framework = framework_map.get(mcp_framework, MCPFramework.FASTMCP)
             config = MCPServerConfig(
                 service_name=service_name,
                 service_prefix=service_prefix,
@@ -2203,7 +2205,8 @@ def register_routes(app: Flask):
             endpoint_filter = EndpointFilter(selected_endpoints=selected_endpoints)
 
             # Configuración
-            framework = MCPFramework.FASTMCP if mcp_framework == "fastmcp" else MCPFramework.MCP
+            framework_map = {"fastmcp": MCPFramework.FASTMCP, "mcp": MCPFramework.MCP, "typescript": MCPFramework.TYPESCRIPT}
+            framework = framework_map.get(mcp_framework, MCPFramework.FASTMCP)
             config = MCPServerConfig(
                 service_name=service_name,
                 service_prefix=service_prefix,
