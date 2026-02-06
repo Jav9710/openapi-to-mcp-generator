@@ -1227,6 +1227,133 @@ def register_routes(app: Flask):
 
         return jsonify({"changed": False})
 
+    # ========== Notification Channel Routes ==========
+
+    @app.route("/api/notifications/channels", methods=["GET"])
+    def list_notification_channels():
+        """Lista canales de notificacion del workspace."""
+        from flask_login import current_user
+        from .database import NotificationChannel, WorkspaceMember
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+        ws_id = membership.workspace_id if membership else None
+        if not ws_id:
+            return jsonify({"channels": []})
+
+        channels = NotificationChannel.query.filter_by(workspace_id=ws_id).all()
+        return jsonify({"channels": [c.to_dict() for c in channels]})
+
+    @app.route("/api/notifications/channels", methods=["POST"])
+    def create_notification_channel():
+        """Crea un nuevo canal de notificacion."""
+        from flask_login import current_user
+        from .database import db, NotificationChannel, WorkspaceMember, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        data = request.json or {}
+        channel_type = data.get("type", "").lower()
+        name = data.get("name", "").strip()
+        config = data.get("config", {})
+
+        if channel_type not in ("slack", "discord", "email"):
+            return jsonify({"error": "Tipo de canal invalido (slack, discord, email)"}), 400
+        if not name:
+            return jsonify({"error": "Nombre es requerido"}), 400
+
+        membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+        ws_id = membership.workspace_id if membership else None
+        if not ws_id:
+            return jsonify({"error": "Workspace no encontrado"}), 400
+
+        channel = NotificationChannel(
+            workspace_id=ws_id,
+            name=name,
+            channel_type=channel_type,
+            config=config,
+        )
+        db.session.add(channel)
+        db.session.commit()
+
+        return jsonify({"success": True, "channel": channel.to_dict()})
+
+    @app.route("/api/notifications/channels/<int:channel_id>", methods=["PUT"])
+    def update_notification_channel(channel_id):
+        """Actualiza un canal de notificacion."""
+        from flask_login import current_user
+        from .database import db, NotificationChannel, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        channel = db.session.get(NotificationChannel, channel_id)
+        if not channel:
+            return jsonify({"error": "Canal no encontrado"}), 404
+
+        data = request.json or {}
+        if "name" in data:
+            channel.name = data["name"]
+        if "config" in data:
+            channel.config = data["config"]
+        if "is_active" in data:
+            channel.is_active = data["is_active"]
+
+        db.session.commit()
+        return jsonify({"success": True, "channel": channel.to_dict()})
+
+    @app.route("/api/notifications/channels/<int:channel_id>", methods=["DELETE"])
+    def delete_notification_channel(channel_id):
+        """Elimina un canal de notificacion."""
+        from flask_login import current_user
+        from .database import db, NotificationChannel, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        channel = db.session.get(NotificationChannel, channel_id)
+        if not channel:
+            return jsonify({"error": "Canal no encontrado"}), 404
+
+        db.session.delete(channel)
+        db.session.commit()
+        return jsonify({"success": True})
+
+    @app.route("/api/notifications/channels/<int:channel_id>/test", methods=["POST"])
+    def test_notification_channel(channel_id):
+        """Envia una notificacion de prueba."""
+        from flask_login import current_user
+        from .database import NotificationChannel
+        from .notifications import create_notifier
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        channel = db.session.get(NotificationChannel, channel_id)
+        if not channel:
+            return jsonify({"error": "Canal no encontrado"}), 404
+
+        config = {"type": channel.channel_type, **channel.config}
+        notifier = create_notifier(config)
+
+        if notifier:
+            success = notifier.send(
+                "Test de Notificacion",
+                "Esta es una notificacion de prueba desde OpenAPI to MCP Generator.",
+            )
+            return jsonify({"success": success})
+
+        return jsonify({"error": "No se pudo crear el notificador"}), 400
+
     # ========== Admin Routes ==========
 
     @app.route("/admin")
