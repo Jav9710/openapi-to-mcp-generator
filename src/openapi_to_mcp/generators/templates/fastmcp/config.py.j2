@@ -1,0 +1,53 @@
+"""
+Configuration for {{ service_name }} MCP Server.
+
+Settings are loaded from environment variables with sensible defaults.
+"""
+
+import os
+from dataclasses import dataclass
+
+
+@dataclass
+class Settings:
+    """Server configuration settings."""
+
+    # API Configuration
+    base_url: str = os.getenv("{{ service_name | upper }}_BASE_URL", "{{ base_url }}")
+    timeout: int = int(os.getenv("{{ service_name | upper }}_TIMEOUT", "{{ timeout | default(30) }}"))
+
+    # Authentication
+{% if auth_type == "api_key" %}
+    api_key: str = os.getenv("{{ service_name | upper }}_API_KEY", "")
+    api_key_header: str = "{{ api_key_header | default('X-API-Key') }}"
+{% elif auth_type == "bearer" %}
+    bearer_token: str = os.getenv("{{ service_name | upper }}_TOKEN", "")
+{% elif auth_type == "basic" %}
+    basic_username: str = os.getenv("{{ service_name | upper }}_USERNAME", "")
+    basic_password: str = os.getenv("{{ service_name | upper }}_PASSWORD", "")
+{% else %}
+    # No authentication configured
+    pass
+{% endif %}
+
+    # Logging
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+
+    def get_auth_headers(self) -> dict[str, str]:
+        """Get authentication headers based on configuration."""
+        headers = {}
+{% if auth_type == "api_key" %}
+        if self.api_key:
+            headers[self.api_key_header] = self.api_key
+{% elif auth_type == "bearer" %}
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
+{% elif auth_type == "basic" %}
+        if self.basic_username and self.basic_password:
+            import base64
+            credentials = base64.b64encode(
+                f"{self.basic_username}:{self.basic_password}".encode()
+            ).decode()
+            headers["Authorization"] = f"Basic {credentials}"
+{% endif %}
+        return headers

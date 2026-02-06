@@ -1,0 +1,129 @@
+"""
+{{ spec_title | default("MCP Server") }} - Generated MCP Server
+
+Framework: FastMCP
+Generated from OpenAPI {{ spec_version | default("1.0.0") }}
+"""
+
+import asyncio
+import logging
+from typing import Any
+
+from fastmcp import FastMCP
+
+from .http_client import HttpClient
+from .config import Settings
+{% if has_auth %}
+from .auth import AuthHandler
+{% endif %}
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize FastMCP
+mcp = FastMCP("{{ service_name }}")
+
+# HTTP client for API calls
+settings = Settings()
+http_client = HttpClient(
+    base_url=settings.base_url,
+    timeout=settings.timeout,
+)
+
+{% if has_auth %}
+# Authentication handler
+auth_handler = AuthHandler(settings)
+{% endif %}
+
+{% for tool in tools %}
+@mcp.tool()
+async def {{ tool.function_name }}(
+{% for param in tool.parameters %}
+    {{ param.name }}: {{ param.python_type }}{% if param.has_default %} = {{ param.default_value }}{% endif %},
+{% endfor %}
+) -> dict[str, Any]:
+    """
+    {{ tool.description }}
+{% if tool.detailed_description %}
+
+    {{ tool.detailed_description }}
+{% endif %}
+
+    Args:
+{% for param in tool.parameters %}
+        {{ param.name }}: {{ param.description }}
+{% endfor %}
+
+    Returns:
+        API response data
+    """
+    {% if tool.path_params %}
+    path = "{{ tool.path }}"
+    {% for pp in tool.path_params %}
+    path = path.replace("{{ '{' }}{{ pp.name }}{{ '}' }}", str({{ pp.name }}))
+    {% endfor %}
+    {% else %}
+    path = "{{ tool.path }}"
+    {% endif %}
+
+    {% if tool.query_params %}
+    query_params = {
+    {% for qp in tool.query_params %}
+        "{{ qp.name }}": {{ qp.name }},
+    {% endfor %}
+    }
+    {% else %}
+    query_params = {}
+    {% endif %}
+
+    {% if tool.has_body %}
+    body = {{ tool.body_param_name | default("body") }}
+    {% else %}
+    body = None
+    {% endif %}
+
+    response = await http_client.request(
+        method="{{ tool.method | upper }}",
+        path=path,
+        params=query_params,
+        json_body=body,
+    )
+    return response
+
+
+{% endfor %}
+
+{% for resource in resources %}
+@mcp.resource("{{ resource.uri_template }}")
+async def {{ resource.function_name }}(
+{% for param in resource.parameters %}
+    {{ param.name }}: {{ param.python_type }},
+{% endfor %}
+) -> str:
+    """
+    {{ resource.description }}
+
+    Returns:
+        Resource content as string
+    """
+    {% if resource.path_params %}
+    path = "{{ resource.path }}"
+    {% for pp in resource.path_params %}
+    path = path.replace("{{ '{' }}{{ pp.name }}{{ '}' }}", str({{ pp.name }}))
+    {% endfor %}
+    {% else %}
+    path = "{{ resource.path }}"
+    {% endif %}
+
+    response = await http_client.request(
+        method="GET",
+        path=path,
+    )
+    return json.dumps(response, indent=2)
+
+
+{% endfor %}
+
+if __name__ == "__main__":
+    mcp.run()

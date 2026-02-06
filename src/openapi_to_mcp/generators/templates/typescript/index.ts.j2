@@ -1,0 +1,71 @@
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import "dotenv/config";
+
+{% for tool in tools %}
+import { {{ tool.function_name }} } from "./tools.js";
+{% endfor %}
+import { toolDefinitions } from "./types.js";
+
+const server = new Server(
+  {
+    name: "{{ service_name }}",
+    version: "{{ spec_version | default('1.0.0') }}",
+  },
+  {
+    capabilities: {
+      tools: {},
+    },
+  }
+);
+
+// List available tools
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return { tools: toolDefinitions };
+});
+
+// Handle tool calls
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  try {
+    let result: unknown;
+
+    switch (name) {
+{% for tool in tools %}
+      case "{{ tool.name }}":
+        result = await {{ tool.function_name }}(args as any);
+        break;
+{% endfor %}
+      default:
+        throw new Error(`Unknown tool: ${name}`);
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: "text", text: `Error: ${errorMessage}` }],
+      isError: true,
+    };
+  }
+});
+
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("{{ service_name }} MCP Server running on stdio");
+}
+
+main().catch(console.error);
