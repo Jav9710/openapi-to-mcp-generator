@@ -284,3 +284,140 @@ class GitLabIntegration:
             "swagger.yaml", "swagger.yml", "swagger.json",
             "api.yaml", "api.yml", "api.json",
         )
+
+
+# ========== Repository Sync Functions ==========
+
+def check_repo_sync(sync_config: dict) -> dict | None:
+    """
+    Verifica si un spec en un repositorio ha cambiado.
+
+    Args:
+        sync_config: Diccionario con provider, repo_url, branch, file_path, access_token, last_sha
+
+    Returns:
+        Dict con nuevo contenido y sha si cambio, None si no cambio
+    """
+    provider = sync_config.get("provider", "github")
+    token = sync_config.get("access_token")
+    if not token:
+        return None
+
+    try:
+        if provider == "github":
+            return _check_github_sync(sync_config)
+        elif provider == "gitlab":
+            return _check_gitlab_sync(sync_config)
+    except Exception as e:
+        logger.error(f"Error checking repo sync: {e}")
+        return None
+
+    return None
+
+
+def _check_github_sync(config: dict) -> dict | None:
+    """Verifica cambios en GitHub."""
+    gh = GitHubIntegration(config["access_token"])
+    repo_url = config["repo_url"]
+    branch = config.get("branch", "main")
+    file_path = config["file_path"]
+    last_sha = config.get("last_sha")
+
+    # Extraer owner/repo de la URL
+    parts = repo_url.rstrip("/").split("/")
+    repo_full_name = f"{parts[-2]}/{parts[-1]}"
+
+    try:
+        params = {"ref": branch}
+        resp = requests.get(
+            f"{GITHUB_API}/repos/{repo_full_name}/contents/{file_path}",
+            headers=gh.headers,
+            params=params,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        current_sha = data.get("sha")
+
+        if current_sha and current_sha != last_sha:
+            content = gh.fetch_file_content(repo_full_name, file_path, branch)
+            return {"content": content, "sha": current_sha}
+    except Exception as e:
+        logger.error(f"GitHub sync check error: {e}")
+
+    return None
+
+
+def _check_gitlab_sync(config: dict) -> dict | None:
+    """Verifica cambios en GitLab."""
+    gl = GitLabIntegration(config["access_token"])
+    repo_url = config["repo_url"]
+    branch = config.get("branch", "main")
+    file_path = config["file_path"]
+    last_sha = config.get("last_sha")
+
+    from urllib.parse import urlparse, quote
+    parsed = urlparse(repo_url)
+    project_path = parsed.path.strip("/")
+    pid = quote(project_path, safe="")
+
+    try:
+        params = {"ref": branch}
+        resp = requests.get(
+            f"{gl.base_url}/projects/{pid}/repository/files/{quote(file_path, safe='')}/",
+            headers=gl.headers,
+            params=params,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        current_sha = data.get("last_commit_id")
+
+        if current_sha and current_sha != last_sha:
+            content = gl.fetch_file_content(project_path, file_path, branch)
+            return {"content": content, "sha": current_sha}
+    except Exception as e:
+        logger.error(f"GitLab sync check error: {e}")
+
+    return None
+
+
+def sync_all_repos(app):
+    """
+    Sincroniza todos los repos configurados.
+    Debe ejecutarse dentro de un contexto de aplicacion Flask.
+    """
+    from .database import db, RepoSync
+    from datetime import datetime, timezone
+
+    with app.app_context():
+        syncs = RepoSync.query.filter_by(is_active=True).all()
+        results = []
+
+        for sync in syncs:
+            config = {
+                "provider": sync.provider,
+                "repo_url": sync.repo_url,
+                "branch": sync.branch,
+                "file_path": sync.file_path,
+                "access_token": sync.access_token,
+                "last_sha": sync.last_sha,
+            }
+
+            change = check_repo_sync(config)
+            if change:
+                sync.last_sha = change["sha"]
+                sync.last_sync = datetime.now(timezone.utc)
+                results.append({
+                    "sync_id": sync.id,
+                    "repo_url": sync.repo_url,
+                    "file_path": sync.file_path,
+                    "new_sha": change["sha"],
+                    "content_length": len(change.get("content", "")),
+                })
+
+        if results:
+            db.session.commit()
+            logger.info(f"Synced {len(results)} repos with changes")
+
+        return results

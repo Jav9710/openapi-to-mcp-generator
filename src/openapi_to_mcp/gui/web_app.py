@@ -1085,6 +1085,148 @@ def register_routes(app: Flask):
         except Exception as e:
             return jsonify({"error": str(e)}), 400
 
+    # ========== Repository Sync Routes ==========
+
+    @app.route("/api/repo-syncs", methods=["GET"])
+    def list_repo_syncs():
+        """Lista configuraciones de sincronizacion."""
+        from flask_login import current_user
+        from .database import RepoSync, WorkspaceMember
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+        ws_id = membership.workspace_id if membership else None
+        if not ws_id:
+            return jsonify({"syncs": []})
+
+        syncs = RepoSync.query.filter_by(workspace_id=ws_id).all()
+        return jsonify({"syncs": [s.to_dict() for s in syncs]})
+
+    @app.route("/api/repo-syncs", methods=["POST"])
+    def create_repo_sync():
+        """Crea una nueva configuracion de sincronizacion."""
+        from flask_login import current_user
+        from .database import db, RepoSync, WorkspaceMember, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        data = request.json or {}
+        provider = data.get("provider", "github")
+        repo_url = data.get("repo_url", "").strip()
+        branch = data.get("branch", "main")
+        file_path = data.get("file_path", "").strip()
+        access_token = data.get("access_token", "").strip()
+
+        if not repo_url or not file_path:
+            return jsonify({"error": "repo_url y file_path son requeridos"}), 400
+
+        membership = WorkspaceMember.query.filter_by(user_id=current_user.id).first()
+        ws_id = membership.workspace_id if membership else None
+        if not ws_id:
+            return jsonify({"error": "Workspace no encontrado"}), 400
+
+        sync = RepoSync(
+            workspace_id=ws_id,
+            provider=provider,
+            repo_url=repo_url,
+            branch=branch,
+            file_path=file_path,
+            access_token=access_token,
+        )
+        db.session.add(sync)
+        db.session.commit()
+
+        return jsonify({"success": True, "sync": sync.to_dict()})
+
+    @app.route("/api/repo-syncs/<int:sync_id>", methods=["PUT"])
+    def update_repo_sync(sync_id):
+        """Actualiza una configuracion de sincronizacion."""
+        from flask_login import current_user
+        from .database import db, RepoSync, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        sync = db.session.get(RepoSync, sync_id)
+        if not sync:
+            return jsonify({"error": "Sync no encontrado"}), 404
+
+        data = request.json or {}
+        if "branch" in data:
+            sync.branch = data["branch"]
+        if "file_path" in data:
+            sync.file_path = data["file_path"]
+        if "access_token" in data:
+            sync.access_token = data["access_token"]
+        if "is_active" in data:
+            sync.is_active = data["is_active"]
+
+        db.session.commit()
+        return jsonify({"success": True, "sync": sync.to_dict()})
+
+    @app.route("/api/repo-syncs/<int:sync_id>", methods=["DELETE"])
+    def delete_repo_sync(sync_id):
+        """Elimina una configuracion de sincronizacion."""
+        from flask_login import current_user
+        from .database import db, RepoSync, UserRole
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Permisos insuficientes"}), 403
+
+        sync = db.session.get(RepoSync, sync_id)
+        if not sync:
+            return jsonify({"error": "Sync no encontrado"}), 404
+
+        db.session.delete(sync)
+        db.session.commit()
+        return jsonify({"success": True})
+
+    @app.route("/api/repo-syncs/<int:sync_id>/check", methods=["POST"])
+    def check_repo_sync_now(sync_id):
+        """Verifica si hay cambios en el repositorio."""
+        from flask_login import current_user
+        from .database import db, RepoSync
+        from .integrations import check_repo_sync
+        from datetime import datetime, timezone
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Autenticacion requerida"}), 401
+
+        sync = db.session.get(RepoSync, sync_id)
+        if not sync:
+            return jsonify({"error": "Sync no encontrado"}), 404
+
+        config = {
+            "provider": sync.provider,
+            "repo_url": sync.repo_url,
+            "branch": sync.branch,
+            "file_path": sync.file_path,
+            "access_token": sync.access_token,
+            "last_sha": sync.last_sha,
+        }
+
+        change = check_repo_sync(config)
+        if change:
+            sync.last_sha = change["sha"]
+            sync.last_sync = datetime.now(timezone.utc)
+            db.session.commit()
+            return jsonify({
+                "changed": True,
+                "new_sha": change["sha"],
+                "content_preview": change["content"][:500] if change.get("content") else None,
+            })
+
+        return jsonify({"changed": False})
+
     # ========== Admin Routes ==========
 
     @app.route("/admin")
