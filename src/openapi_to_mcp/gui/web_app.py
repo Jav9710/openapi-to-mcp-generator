@@ -1607,6 +1607,193 @@ def register_routes(app: Flask):
             "severities": [s.value for s in AuditSeverity],
         })
 
+    # ========== Encryption Routes ==========
+
+    @app.route("/api/encryption/encrypt", methods=["POST"])
+    def encrypt_spec_route():
+        """Encrypt a specification."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import encrypt_spec, EncryptionError
+        from .audit import log_audit, AuditAction
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Editor access required"}), 403
+
+        data = request.json
+        spec_id = data.get("spec_id")
+        content = data.get("content")
+        password = data.get("password")
+        workspace_id = data.get("workspace_id")
+        filename = data.get("filename")
+        title = data.get("title")
+        version = data.get("version")
+
+        if not spec_id or not content or not password:
+            return jsonify({"error": "spec_id, content, and password are required"}), 400
+
+        if len(password) < 8:
+            return jsonify({"error": "Password must be at least 8 characters"}), 400
+
+        try:
+            encrypted_spec = encrypt_spec(
+                spec_id=spec_id,
+                content=content,
+                password=password,
+                workspace_id=workspace_id,
+                user_id=current_user.id,
+                filename=filename,
+                title=title,
+                version=version,
+            )
+
+            log_audit(
+                action=AuditAction.SPEC_ENCRYPTED,
+                resource_type="spec",
+                resource_id=spec_id,
+                resource_name=title or filename,
+                workspace_id=workspace_id,
+            )
+
+            return jsonify({
+                "success": True,
+                "spec_id": spec_id,
+                "encrypted_at": encrypted_spec.encrypted_at.isoformat(),
+            })
+
+        except EncryptionError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            logger.exception("Encryption failed")
+            return jsonify({"error": f"Encryption failed: {str(e)}"}), 500
+
+    @app.route("/api/encryption/decrypt", methods=["POST"])
+    def decrypt_spec_route():
+        """Decrypt a specification."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import decrypt_spec, DecryptionError
+        from .audit import log_audit, AuditAction
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Editor access required"}), 403
+
+        data = request.json
+        spec_id = data.get("spec_id")
+        password = data.get("password")
+
+        if not spec_id or not password:
+            return jsonify({"error": "spec_id and password are required"}), 400
+
+        try:
+            content = decrypt_spec(spec_id, password)
+
+            log_audit(
+                action=AuditAction.SPEC_DECRYPTED,
+                resource_type="spec",
+                resource_id=spec_id,
+            )
+
+            return jsonify({
+                "success": True,
+                "spec_id": spec_id,
+                "content": content,
+            })
+
+        except DecryptionError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            logger.exception("Decryption failed")
+            return jsonify({"error": f"Decryption failed: {str(e)}"}), 500
+
+    @app.route("/api/encryption/list")
+    def list_encrypted_specs_route():
+        """List encrypted specifications."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import list_encrypted_specs
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        workspace_id = request.args.get("workspace_id", type=int)
+
+        specs = list_encrypted_specs(workspace_id=workspace_id)
+        return jsonify({
+            "specs": [s.to_dict() for s in specs],
+            "count": len(specs),
+        })
+
+    @app.route("/api/encryption/status/<spec_id>")
+    def get_encryption_status_route(spec_id):
+        """Get encryption status for a spec."""
+        from flask_login import current_user
+        from .encryption import get_encryption_status
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        status = get_encryption_status(spec_id)
+        if status:
+            return jsonify(status)
+        else:
+            return jsonify({"encrypted": False, "spec_id": spec_id})
+
+    @app.route("/api/encryption/rotate", methods=["POST"])
+    def rotate_encryption_key_route():
+        """Rotate encryption key for a spec."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import rotate_encryption_key
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Editor access required"}), 403
+
+        data = request.json
+        spec_id = data.get("spec_id")
+        old_password = data.get("old_password")
+        new_password = data.get("new_password")
+
+        if not spec_id or not old_password or not new_password:
+            return jsonify({"error": "spec_id, old_password, and new_password are required"}), 400
+
+        if len(new_password) < 8:
+            return jsonify({"error": "New password must be at least 8 characters"}), 400
+
+        success = rotate_encryption_key(spec_id, old_password, new_password)
+        if success:
+            return jsonify({"success": True, "spec_id": spec_id})
+        else:
+            return jsonify({"error": "Key rotation failed. Check passwords."}), 400
+
+    @app.route("/api/encryption/delete/<spec_id>", methods=["DELETE"])
+    def delete_encrypted_spec_route(spec_id):
+        """Delete an encrypted specification."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import delete_encrypted_spec
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        if not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        deleted = delete_encrypted_spec(spec_id)
+        if deleted:
+            return jsonify({"success": True, "spec_id": spec_id})
+        else:
+            return jsonify({"error": "Encrypted spec not found"}), 404
+
     # ========== App Routes ==========
 
     @app.route("/")

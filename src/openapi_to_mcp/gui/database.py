@@ -283,6 +283,7 @@ def init_db(app):
     """Inicializa la base de datos y crea tablas."""
     db.init_app(app)
     with app.app_context():
-        # Import AuditLog to register with SQLAlchemy
+        # Import models to register with SQLAlchemy
         from .audit import AuditLog  # noqa: F401
+        from .encryption import EncryptedSpec, MasterKey  # noqa: F401
         db.create_all()
