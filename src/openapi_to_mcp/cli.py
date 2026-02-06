@@ -908,6 +908,74 @@ def enrich(spec_path: str, output: str | None, auto: bool):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument("config_path", type=click.Path(exists=True))
+@click.option(
+    "--parallel/--no-parallel",
+    default=True,
+    help="Ejecutar generaciones en paralelo"
+)
+@click.option(
+    "--workers", "-w",
+    type=int,
+    default=None,
+    help="Numero de workers para ejecucion paralela"
+)
+def batch(config_path: str, parallel: bool, workers: int | None):
+    """
+    Genera multiples servidores MCP desde archivo de configuracion.
+
+    CONFIG_PATH: Ruta al archivo YAML de configuracion batch.
+
+    Ejemplo de configuracion (batch.yaml):
+
+    \b
+    output_dir: ./output
+    framework: fastmcp
+
+    specs:
+      - path: ./specs/petstore.yaml
+        service_name: petstore
+
+      - path: ./specs/github.yaml
+        service_name: github
+        framework: typescript
+    """
+    from .batch import run_batch, generate_batch_report
+
+    console.print(Panel.fit(
+        "[bold blue]OpenAPI to MCP[/bold blue] - Batch Generation",
+        border_style="blue"
+    ))
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Procesando specs...", total=None)
+
+            summary = run_batch(config_path, parallel=parallel, max_workers=workers)
+
+            progress.update(task, completed=True)
+
+        # Mostrar resultados
+        report = generate_batch_report(summary)
+        console.print(report)
+
+        # Resumen final
+        if summary.failed > 0:
+            console.print(f"\n[yellow]Completado con {summary.failed} errores[/yellow]")
+            sys.exit(1)
+        else:
+            console.print(f"\n[green]Todos los {summary.successful} specs procesados exitosamente[/green]")
+
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
 def main():
     """Punto de entrada principal."""
     cli()
