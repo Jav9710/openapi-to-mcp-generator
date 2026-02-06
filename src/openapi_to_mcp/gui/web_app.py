@@ -17,6 +17,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import uuid
 import webbrowser
 import zipfile
@@ -2201,6 +2202,8 @@ def register_routes(app: Flask):
         download_zip = data.get("download_zip", False)
 
         try:
+            gen_start_time = time.time()
+
             # Crear filtro
             endpoint_filter = EndpointFilter(selected_endpoints=selected_endpoints)
 
@@ -2260,6 +2263,8 @@ def register_routes(app: Flask):
                             )
                 except Exception:
                     pass
+
+            generation_time = round((time.time() - gen_start_time) * 1000)
 
             if download_zip and result.success:
                 # Crear ZIP

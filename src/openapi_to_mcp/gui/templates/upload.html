@@ -9,6 +9,10 @@
     <script src="{{ url_for('static', filename='toast.js') }}"></script>
     <!-- Recent specs -->
     <script src="{{ url_for('static', filename='recent-specs.js') }}"></script>
+    <!-- Spec Library -->
+    <script src="{{ url_for('static', filename='spec-library.js') }}"></script>
+    <!-- Spec Config -->
+    <script src="{{ url_for('static', filename='spec-config.js') }}"></script>
     <!-- Prevent flash of wrong theme -->
     <script>
         (function() {
@@ -27,6 +31,13 @@
                 <div class="spec-info">
                     <span class="spec-title">Generador de Servidores MCP</span>
                 </div>
+                <button id="openLibraryBtn" class="library-btn" title="Abrir biblioteca" aria-label="Abrir biblioteca">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>
+                    Biblioteca
+                </button>
                 <button id="themeToggle" class="theme-toggle" title="Cambiar tema" aria-label="Cambiar tema">
                     <!-- Moon icon (light mode) -->
                     <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -221,6 +232,361 @@
         <div id="loadingOverlay" class="loading-overlay" style="display: none;">
             <div class="spinner"></div>
             <span id="loadingText">Procesando especificación...</span>
+        </div>
+    </div>
+
+    <!-- Spec Library Modal -->
+    <div id="libraryModal" class="modal" style="display: none;">
+        <div class="modal-content library-modal-content">
+            <div class="modal-header">
+                <h2>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>
+                    Biblioteca de Especificaciones
+                </h2>
+                <button class="modal-close" id="closeLibraryBtn">&times;</button>
+            </div>
+
+            <div class="library-container">
+                <!-- Left Sidebar: Specs List -->
+                <div class="library-sidebar">
+                    <!-- Search and Filters -->
+                    <div class="library-search-section">
+                        <div class="search-bar">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <path d="m21 21-4.35-4.35"></path>
+                            </svg>
+                            <input type="text" id="librarySearchInput" placeholder="Buscar especificaciones...">
+                        </div>
+
+                        <div class="library-filters">
+                            <button class="filter-btn active" data-filter="all">
+                                Todas <span id="countAll" class="count-badge">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="favorites">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                </svg>
+                                Favoritas <span id="countFavorites" class="count-badge">0</span>
+                            </button>
+                        </div>
+
+                        <div class="library-avg-time">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                            <span>Tiempo prom.: <strong id="avgGenTime">--</strong></span>
+                        </div>
+
+                        <div class="library-actions">
+                            <button id="exportLibraryBtn" class="action-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                Exportar
+                            </button>
+                            <button id="importLibraryBtn" class="action-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                Importar
+                            </button>
+                            <input type="file" id="importLibraryInput" accept=".json" style="display: none;">
+                        </div>
+                    </div>
+
+                    <!-- Specs List -->
+                    <div class="specs-list" id="specsList">
+                        <!-- Specs will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- Right Panel: Spec Details -->
+                <div class="library-main">
+                    <div id="libraryEmpty" class="library-empty">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                        </svg>
+                        <h3>No hay especificaciones guardadas</h3>
+                        <p>Las especificaciones que cargues se guardarán automáticamente aquí</p>
+                    </div>
+
+                    <div id="specDetails" class="spec-details" style="display: none;">
+                        <!-- Spec Header -->
+                        <div class="spec-header">
+                            <div class="spec-title-section">
+                                <h3 id="specDetailTitle"></h3>
+                                <button id="toggleFavoriteBtn" class="favorite-btn">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                    </svg>
+                                </button>
+                            </div>
+                            <p id="specDetailDescription"></p>
+                            <div class="spec-meta">
+                                <span class="meta-item" id="specDetailVersion"></span>
+                                <span class="meta-item" id="specDetailUpdated"></span>
+                                <span class="meta-item" id="specDetailVersionsCount"></span>
+                            </div>
+                            <div class="spec-tags" id="specDetailTags"></div>
+                        </div>
+
+                        <!-- Tabs -->
+                        <div class="spec-tabs">
+                            <button class="spec-tab active" data-tab="versions">Versiones</button>
+                            <button class="spec-tab" data-tab="generations">Generaciones MCP</button>
+                            <button class="spec-tab" data-tab="config">Configuración</button>
+                        </div>
+
+                        <!-- Versions Tab -->
+                        <div id="versionsTab" class="spec-tab-content active">
+                            <div class="versions-timeline" id="versionsTimeline">
+                                <!-- Timeline will be rendered here -->
+                            </div>
+                        </div>
+
+                        <!-- Generations Tab -->
+                        <div id="generationsTab" class="spec-tab-content" style="display: none;">
+                            <div class="generations-list" id="generationsList">
+                                <!-- Generations will be rendered here -->
+                            </div>
+                        </div>
+
+                        <!-- Configuration Tab -->
+                        <div id="configTab" class="spec-tab-content" style="display: none;">
+                            <!-- Mode Toggle -->
+                            <div class="config-mode-toggle">
+                                <button class="mode-btn active" data-mode="gui">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="7" height="7"></rect>
+                                        <rect x="14" y="3" width="7" height="7"></rect>
+                                        <rect x="14" y="14" width="7" height="7"></rect>
+                                        <rect x="3" y="14" width="7" height="7"></rect>
+                                    </svg>
+                                    Formulario
+                                </button>
+                                <button class="mode-btn" data-mode="editor">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="16 18 22 12 16 6"></polyline>
+                                        <polyline points="8 6 2 12 8 18"></polyline>
+                                    </svg>
+                                    Editor YAML
+                                </button>
+                            </div>
+
+                            <!-- Profile Selector -->
+                            <div class="config-profile-section">
+                                <label>Cargar perfil:</label>
+                                <select id="configProfileSelect" class="profile-select">
+                                    <option value="">-- Seleccionar perfil --</option>
+                                </select>
+                                <button id="saveAsProfileBtn" class="btn-small">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                        <polyline points="7 3 7 8 15 8"></polyline>
+                                    </svg>
+                                    Guardar como perfil
+                                </button>
+                            </div>
+
+                            <!-- GUI Mode -->
+                            <div id="configGuiMode" class="config-mode-content">
+                                <form id="configForm" class="config-form">
+                                    <!-- Basic Settings -->
+                                    <div class="config-section">
+                                        <h4>Configuración Básica</h4>
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="cfgServiceName">Nombre del servicio *</label>
+                                                <input type="text" id="cfgServiceName" name="service_name" required pattern="[a-z][a-z0-9_]*">
+                                                <small>Solo minúsculas, números y guiones bajos</small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgServicePrefix">Prefijo del servicio</label>
+                                                <input type="text" id="cfgServicePrefix" name="service_prefix" pattern="[a-z][a-z0-9_]*">
+                                                <small>Prefijo para tools y resources</small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgMcpFramework">Framework MCP</label>
+                                                <select id="cfgMcpFramework" name="mcp_framework">
+                                                    <option value="fastmcp">FastMCP (Recomendado)</option>
+                                                    <option value="mcp">MCP Estándar</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgEnvironment">Ambiente</label>
+                                                <select id="cfgEnvironment" name="environment">
+                                                    <option value="development">Development</option>
+                                                    <option value="staging">Staging</option>
+                                                    <option value="production">Production</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- API Settings -->
+                                    <div class="config-section">
+                                        <h4>Configuración de API</h4>
+                                        <div class="form-grid">
+                                            <div class="form-group full-width">
+                                                <label for="cfgBaseUrl">URL Base</label>
+                                                <input type="url" id="cfgBaseUrl" name="base_url" placeholder="https://api.example.com">
+                                                <small>URL base de la API (opcional)</small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgTimeout">Timeout (segundos)</label>
+                                                <input type="number" id="cfgTimeout" name="timeout" min="1" max="300" value="30">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgLogLevel">Nivel de Log</label>
+                                                <select id="cfgLogLevel" name="log_level">
+                                                    <option value="DEBUG">DEBUG</option>
+                                                    <option value="INFO">INFO</option>
+                                                    <option value="WARNING">WARNING</option>
+                                                    <option value="ERROR">ERROR</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="form-checkboxes">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="cfgGenerateResources" name="generate_resources" checked>
+                                                Generar Resources
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="cfgIncludeDeprecated" name="include_deprecated">
+                                                Incluir endpoints deprecated
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- Authentication -->
+                                    <div class="config-section">
+                                        <h4>Autenticación</h4>
+                                        <div class="form-grid">
+                                            <div class="form-group full-width">
+                                                <label for="cfgAuthType">Tipo de autenticación</label>
+                                                <select id="cfgAuthType" name="auth_type">
+                                                    <option value="none">Sin autenticación</option>
+                                                    <option value="api_key">API Key</option>
+                                                    <option value="bearer">Bearer Token</option>
+                                                    <option value="basic">Basic Auth</option>
+                                                    <option value="oauth2">OAuth2</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div id="authConfigFields" class="form-grid" style="display: none;">
+                                            <!-- Dynamic auth fields will be inserted here -->
+                                        </div>
+                                    </div>
+
+                                    <!-- Retry Configuration -->
+                                    <div class="config-section">
+                                        <h4>Configuración de Reintentos</h4>
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="cfgMaxRetries">Máximo de reintentos</label>
+                                                <input type="number" id="cfgMaxRetries" name="max_retries" min="0" max="10" value="3">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="cfgBackoffFactor">Factor de backoff</label>
+                                                <input type="number" id="cfgBackoffFactor" name="backoff_factor" min="0" max="5" step="0.1" value="0.5">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Action Buttons -->
+                                    <div class="config-actions">
+                                        <button type="button" id="resetConfigBtn" class="btn-secondary">
+                                            Restablecer
+                                        </button>
+                                        <button type="submit" class="btn-primary">
+                                            Guardar configuración
+                                        </button>
+                                    </div>
+                                </form>
+
+                                <!-- Validation Messages -->
+                                <div id="configValidation" class="validation-messages" style="display: none;"></div>
+                            </div>
+
+                            <!-- Editor Mode -->
+                            <div id="configEditorMode" class="config-mode-content" style="display: none;">
+                                <div class="editor-toolbar">
+                                    <button id="formatYamlBtn" class="btn-small">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="4 7 4 4 20 4 20 7"></polyline>
+                                            <line x1="9" y1="20" x2="15" y2="20"></line>
+                                            <line x1="12" y1="4" x2="12" y2="20"></line>
+                                        </svg>
+                                        Formatear
+                                    </button>
+                                    <button id="validateYamlBtn" class="btn-small">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                        </svg>
+                                        Validar
+                                    </button>
+                                    <button id="exportConfigBtn" class="btn-small">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="7 10 12 15 17 10"></polyline>
+                                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                                        </svg>
+                                        Exportar
+                                    </button>
+                                    <label class="btn-small" for="importConfigInput">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="17 8 12 3 7 8"></polyline>
+                                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                                        </svg>
+                                        Importar
+                                    </label>
+                                    <input type="file" id="importConfigInput" accept=".yaml,.yml,.json" style="display: none;">
+                                </div>
+                                <textarea id="configEditor" class="config-editor" spellcheck="false"></textarea>
+                                <div class="editor-footer">
+                                    <button id="saveYamlConfigBtn" class="btn-primary">Guardar configuración</button>
+                                </div>
+                                <!-- Validation Messages -->
+                                <div id="editorValidation" class="validation-messages" style="display: none;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="noSpecSelected" class="library-empty" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        <h3>Selecciona una especificación</h3>
+                        <p>Haz clic en una especificación de la lista para ver sus detalles y versiones</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Version Diff Modal -->
+            <div id="diffModal" class="modal" style="display: none;">
+                <div class="modal-content diff-modal-content">
+                    <div class="modal-header">
+                        <h3>Comparar Versiones</h3>
+                        <button class="modal-close" id="closeDiffBtn">&times;</button>
+                    </div>
+                    <div class="diff-content" id="diffContent">
+                        <!-- Diff will be rendered here -->
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -585,6 +951,29 @@
                 source_url: currentTab === 'url' ? urlInput.value : null,
             });
 
+            // Save to library (if spec data available)
+            if (result.spec_data || result.spec_info) {
+                try {
+                    const specData = result.spec_data || {
+                        title: result.spec_info.title,
+                        version: result.spec_info.version,
+                        description: result.spec_info.description,
+                        paths: {}, // Will be populated from server
+                        endpoints_count: result.spec_info.endpoints_count
+                    };
+
+                    const saveResult = SpecLibrary.saveSpec({
+                        ...specData,
+                        source: currentTab,
+                        source_url: currentTab === 'url' ? urlInput.value : null
+                    }, 'Cargado desde ' + (currentTab === 'url' ? 'URL' : 'archivo'), true);
+
+                    console.log('Spec saved to library:', saveResult.spec.id);
+                } catch (error) {
+                    console.error('Error saving to library:', error);
+                }
+            }
+
             // Re-render recent specs
             renderRecentSpecs();
         }
@@ -640,6 +1029,944 @@
         document.addEventListener('DOMContentLoaded', () => {
             renderRecentSpecs();
         });
+
+        // ================================
+        // Spec Library Management
+        // ================================
+        const LibraryUI = {
+            currentFilter: 'all',
+            currentSpecId: null,
+            currentTab: 'versions',
+
+            init() {
+                // Modal controls
+                document.getElementById('openLibraryBtn').addEventListener('click', () => this.openLibrary());
+                document.getElementById('closeLibraryBtn').addEventListener('click', () => this.closeLibrary());
+
+                // Search
+                document.getElementById('librarySearchInput').addEventListener('input', (e) => this.handleSearch(e.target.value));
+
+                // Filters
+                document.querySelectorAll('.filter-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => this.handleFilter(btn.dataset.filter));
+                });
+
+                // Actions
+                document.getElementById('exportLibraryBtn').addEventListener('click', () => this.exportLibrary());
+                document.getElementById('importLibraryBtn').addEventListener('click', () => {
+                    document.getElementById('importLibraryInput').click();
+                });
+                document.getElementById('importLibraryInput').addEventListener('change', (e) => this.importLibrary(e));
+
+                // Tabs
+                document.querySelectorAll('.spec-tab').forEach(btn => {
+                    btn.addEventListener('click', () => this.switchTab(btn.dataset.tab));
+                });
+
+                // Close modal on outside click
+                document.getElementById('libraryModal').addEventListener('click', (e) => {
+                    if (e.target.id === 'libraryModal') this.closeLibrary();
+                });
+            },
+
+            openLibrary() {
+                document.getElementById('libraryModal').style.display = 'flex';
+                this.renderSpecs();
+                this.updateCounts();
+            },
+
+            closeLibrary() {
+                document.getElementById('libraryModal').style.display = 'none';
+            },
+
+            handleSearch(query) {
+                this.renderSpecs(query);
+            },
+
+            handleFilter(filter) {
+                this.currentFilter = filter;
+                document.querySelectorAll('.filter-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.filter === filter);
+                });
+                this.renderSpecs();
+            },
+
+            renderSpecs(searchQuery = '') {
+                const filters = {
+                    favorites: this.currentFilter === 'favorites',
+                    sortBy: 'updated_at',
+                    sortOrder: 'desc'
+                };
+
+                const specs = SpecLibrary.search(searchQuery, filters);
+                const container = document.getElementById('specsList');
+
+                if (specs.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <p>No se encontraron especificaciones</p>
+                        </div>
+                    `;
+                    this.showEmpty();
+                    return;
+                }
+
+                container.innerHTML = specs.map(spec => `
+                    <div class="spec-item ${this.currentSpecId === spec.id ? 'active' : ''}" data-spec-id="${spec.id}">
+                        <div class="spec-item-header">
+                            <h4>${this.escapeHtml(spec.title)}</h4>
+                            ${spec.favorite ? '<svg class="favorite-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>' : ''}
+                        </div>
+                        <p class="spec-item-desc">${this.escapeHtml(spec.description || 'Sin descripción')}</p>
+                        <div class="spec-item-meta">
+                            <span>v${this.escapeHtml(spec.version)}</span>
+                            <span>•</span>
+                            <span>${spec.versions_count} versión${spec.versions_count !== 1 ? 'es' : ''}</span>
+                            <span>•</span>
+                            <span>${this.formatDate(spec.updated_at)}</span>
+                        </div>
+                        ${spec.tags.length > 0 ? `
+                            <div class="spec-item-tags">
+                                ${spec.tags.map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('');
+
+                // Add click handlers
+                container.querySelectorAll('.spec-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        this.selectSpec(item.dataset.specId);
+                    });
+                });
+
+                // If nothing selected, show placeholder
+                if (!this.currentSpecId && specs.length > 0) {
+                    this.showNoSelection();
+                }
+            },
+
+            selectSpec(specId) {
+                this.currentSpecId = specId;
+                this.renderSpecs(); // Re-render to update active state
+                this.renderSpecDetails(specId);
+            },
+
+            renderSpecDetails(specId) {
+                const spec = SpecLibrary.getSpec(specId);
+                if (!spec) return;
+
+                // Show details panel
+                document.getElementById('libraryEmpty').style.display = 'none';
+                document.getElementById('noSpecSelected').style.display = 'none';
+                document.getElementById('specDetails').style.display = 'block';
+
+                // Render header
+                document.getElementById('specDetailTitle').textContent = spec.title;
+                document.getElementById('specDetailDescription').textContent = spec.description || 'Sin descripción';
+                document.getElementById('specDetailVersion').textContent = `v${spec.version}`;
+                document.getElementById('specDetailUpdated').textContent = `Actualizado ${this.formatDate(spec.updated_at)}`;
+                document.getElementById('specDetailVersionsCount').textContent = `${spec.versions_count} versión${spec.versions_count !== 1 ? 'es' : ''}`;
+
+                // Render tags
+                const tagsContainer = document.getElementById('specDetailTags');
+                if (spec.tags.length > 0) {
+                    tagsContainer.innerHTML = spec.tags.map(tag =>
+                        `<span class="tag">${this.escapeHtml(tag)}</span>`
+                    ).join('');
+                    tagsContainer.style.display = 'flex';
+                } else {
+                    tagsContainer.style.display = 'none';
+                }
+
+                // Favorite button
+                const favoriteBtn = document.getElementById('toggleFavoriteBtn');
+                favoriteBtn.classList.toggle('active', spec.favorite);
+                favoriteBtn.onclick = () => {
+                    SpecLibrary.toggleFavorite(specId);
+                    this.renderSpecs();
+                    this.renderSpecDetails(specId);
+                    this.updateCounts();
+                };
+
+                // Render current tab content
+                if (this.currentTab === 'versions') {
+                    this.renderVersions(specId);
+                } else {
+                    this.renderGenerations(specId);
+                }
+            },
+
+            renderVersions(specId) {
+                const versions = SpecLibrary.getVersions(specId);
+                const container = document.getElementById('versionsTimeline');
+
+                if (versions.length === 0) {
+                    container.innerHTML = '<p class="empty-state">No hay versiones</p>';
+                    return;
+                }
+
+                container.innerHTML = `
+                    <div class="timeline">
+                        ${versions.map((version, index) => `
+                            <div class="timeline-item">
+                                <div class="timeline-marker ${index === 0 ? 'current' : ''}"></div>
+                                <div class="timeline-content">
+                                    <div class="version-header">
+                                        <h4>Versión ${version.version_number}</h4>
+                                        <span class="version-date">${this.formatDateTime(version.created_at)}</span>
+                                    </div>
+                                    ${version.note ? `<p class="version-note">${this.escapeHtml(version.note)}</p>` : ''}
+                                    <div class="version-stats">
+                                        <span class="stat-badge">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <circle cx="12" cy="12" r="10"></circle>
+                                                <line x1="2" y1="12" x2="22" y2="12"></line>
+                                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                                            </svg>
+                                            ${version.endpoints_count} endpoints
+                                        </span>
+                                        ${version.changes_summary ? `<span class="stat-badge">${this.escapeHtml(version.changes_summary)}</span>` : ''}
+                                    </div>
+                                    <div class="version-actions">
+                                        ${index !== 0 ? `
+                                            <button class="btn-small" onclick="LibraryUI.restoreVersion('${version.id}')">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <polyline points="1 4 1 10 7 10"></polyline>
+                                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                </svg>
+                                                Restaurar
+                                            </button>
+                                        ` : '<span class="current-badge">Actual</span>'}
+                                        ${index < versions.length - 1 ? `
+                                            <button class="btn-small" onclick="LibraryUI.compareVersions('${version.id}', '${versions[index + 1].id}')">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <polyline points="16 3 21 3 21 8"></polyline>
+                                                    <line x1="4" y1="20" x2="21" y2="3"></line>
+                                                    <polyline points="21 16 21 21 16 21"></polyline>
+                                                    <line x1="15" y1="15" x2="21" y2="21"></line>
+                                                    <line x1="4" y1="4" x2="9" y2="9"></line>
+                                                </svg>
+                                                Comparar
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            },
+
+            renderGenerations(specId) {
+                const generations = SpecLibrary.getSpecGenerations(specId);
+                const container = document.getElementById('generationsList');
+
+                if (generations.length === 0) {
+                    container.innerHTML = '<p class="empty-state">No se han generado servidores MCP para esta especificación</p>';
+                    return;
+                }
+
+                container.innerHTML = generations.map(gen => `
+                    <div class="generation-item">
+                        <div class="generation-header">
+                            <h4>Generación MCP</h4>
+                            <span class="generation-date">${this.formatDateTime(gen.created_at)}</span>
+                        </div>
+                        <div class="generation-config">
+                            <div class="config-item">
+                                <span class="label">Framework:</span>
+                                <span class="value">${gen.config.mcp_framework || 'fastmcp'}</span>
+                            </div>
+                            <div class="config-item">
+                                <span class="label">Servicio:</span>
+                                <span class="value">${gen.config.service_name || 'N/A'}</span>
+                            </div>
+                        </div>
+                        <div class="generation-stats">
+                            <span class="stat-badge">${gen.stats.tools_count || 0} tools</span>
+                            <span class="stat-badge">${gen.stats.resources_count || 0} resources</span>
+                            ${gen.stats.generation_time ? `<span class="stat-badge">${gen.stats.generation_time}ms</span>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            },
+
+            restoreVersion(versionId) {
+                if (!confirm('¿Restaurar esta versión? Se creará una nueva versión con el contenido de la versión seleccionada.')) {
+                    return;
+                }
+
+                const result = SpecLibrary.restoreVersion(versionId);
+                if (result) {
+                    Toast.success('Versión restaurada correctamente');
+                    this.renderSpecDetails(this.currentSpecId);
+                } else {
+                    Toast.error('Error al restaurar la versión');
+                }
+            },
+
+            compareVersions(versionId1, versionId2) {
+                const diff = SpecLibrary.compareVersions(versionId1, versionId2);
+                if (!diff) {
+                    Toast.error('Error al comparar versiones');
+                    return;
+                }
+
+                const diffContent = document.getElementById('diffContent');
+                diffContent.innerHTML = `
+                    <div class="diff-header">
+                        <div class="diff-version">
+                            <h4>Version ${diff.version1.version_number}</h4>
+                            <p>${this.formatDateTime(diff.version1.created_at)}</p>
+                            <span class="diff-endpoint-count">${diff.version1.endpoints_count || '?'} endpoints</span>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <polyline points="12 5 19 12 12 19"></polyline>
+                        </svg>
+                        <div class="diff-version">
+                            <h4>Version ${diff.version2.version_number}</h4>
+                            <p>${this.formatDateTime(diff.version2.created_at)}</p>
+                            <span class="diff-endpoint-count">${diff.version2.endpoints_count || '?'} endpoints</span>
+                        </div>
+                    </div>
+
+                    <div class="diff-summary">
+                        <h4>Resumen de cambios</h4>
+                        <p>${diff.summary}</p>
+                    </div>
+
+                    <div class="diff-sections">
+                        ${diff.endpoints_diff.added.length > 0 ? `
+                            <div class="diff-section added">
+                                <h4 class="diff-section-title diff-added-title">Endpoints agregados (${diff.endpoints_diff.added.length})</h4>
+                                <ul class="diff-list">
+                                    ${diff.endpoints_diff.added.map(path => `
+                                        <li class="diff-item diff-item-added">
+                                            <span class="diff-item-icon">+</span>
+                                            <code>${this.escapeHtml(path)}</code>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+
+                        ${diff.endpoints_diff.removed.length > 0 ? `
+                            <div class="diff-section removed">
+                                <h4 class="diff-section-title diff-removed-title">Endpoints eliminados (${diff.endpoints_diff.removed.length})</h4>
+                                <ul class="diff-list">
+                                    ${diff.endpoints_diff.removed.map(path => `
+                                        <li class="diff-item diff-item-removed">
+                                            <span class="diff-item-icon">-</span>
+                                            <code>${this.escapeHtml(path)}</code>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+
+                        ${diff.endpoints_diff.modified.length > 0 ? `
+                            <div class="diff-section modified">
+                                <h4 class="diff-section-title diff-modified-title">Endpoints modificados (${diff.endpoints_diff.modified.length})</h4>
+                                <ul class="diff-list">
+                                    ${diff.endpoints_diff.modified.map(item => `
+                                        <li class="diff-item diff-item-modified">
+                                            <div class="diff-item-header" onclick="this.parentElement.classList.toggle('expanded')">
+                                                <span class="diff-item-icon">~</span>
+                                                <code>${this.escapeHtml(item.path)}</code>
+                                                <span class="diff-detail-count">${item.details.length} cambio${item.details.length !== 1 ? 's' : ''}</span>
+                                                <span class="diff-expand-icon">&#9654;</span>
+                                            </div>
+                                            <div class="diff-detail-panel">
+                                                ${item.details.map(d => {
+                                                    if (d.type === 'method_added') {
+                                                        return `<div class="diff-change diff-change-added">
+                                                            <span class="diff-method-badge method-${d.method.toLowerCase()}">${d.method}</span>
+                                                            <span>Metodo agregado</span>
+                                                        </div>`;
+                                                    } else if (d.type === 'method_removed') {
+                                                        return `<div class="diff-change diff-change-removed">
+                                                            <span class="diff-method-badge method-${d.method.toLowerCase()}">${d.method}</span>
+                                                            <span>Metodo eliminado</span>
+                                                        </div>`;
+                                                    } else if (d.type === 'method_modified') {
+                                                        return `<div class="diff-change diff-change-modified">
+                                                            <span class="diff-method-badge method-${d.method.toLowerCase()}">${d.method}</span>
+                                                            <span>Propiedades modificadas: ${d.properties.join(', ')}</span>
+                                                        </div>`;
+                                                    }
+                                                    return '';
+                                                }).join('')}
+                                            </div>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+
+                        ${diff.endpoints_diff.added.length === 0 && diff.endpoints_diff.removed.length === 0 && diff.endpoints_diff.modified.length === 0 ? `
+                            <p class="empty-state">No hay cambios en los endpoints</p>
+                        ` : ''}
+                    </div>
+                `;
+
+                document.getElementById('diffModal').style.display = 'flex';
+                document.getElementById('closeDiffBtn').onclick = () => {
+                    document.getElementById('diffModal').style.display = 'none';
+                };
+            },
+
+            switchTab(tab) {
+                this.currentTab = tab;
+
+                // Update tab buttons
+                document.querySelectorAll('.spec-tab').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === tab);
+                });
+
+                // Update tab content
+                document.getElementById('versionsTab').style.display = tab === 'versions' ? 'block' : 'none';
+                document.getElementById('generationsTab').style.display = tab === 'generations' ? 'block' : 'none';
+
+                // Render content
+                if (this.currentSpecId) {
+                    if (tab === 'versions') {
+                        this.renderVersions(this.currentSpecId);
+                    } else {
+                        this.renderGenerations(this.currentSpecId);
+                    }
+                }
+            },
+
+            showEmpty() {
+                document.getElementById('libraryEmpty').style.display = 'flex';
+                document.getElementById('noSpecSelected').style.display = 'none';
+                document.getElementById('specDetails').style.display = 'none';
+            },
+
+            showNoSelection() {
+                document.getElementById('libraryEmpty').style.display = 'none';
+                document.getElementById('noSpecSelected').style.display = 'flex';
+                document.getElementById('specDetails').style.display = 'none';
+            },
+
+            updateCounts() {
+                const all = SpecLibrary.getAllSpecs();
+                const favorites = all.filter(s => s.favorite);
+
+                document.getElementById('countAll').textContent = all.length;
+                document.getElementById('countFavorites').textContent = favorites.length;
+
+                const stats = SpecLibrary.getStats();
+                const avgTimeEl = document.getElementById('avgGenTime');
+                if (avgTimeEl) {
+                    if (stats.avg_generation_time != null) {
+                        const formatted = stats.avg_generation_time < 1000
+                            ? `${stats.avg_generation_time}ms`
+                            : `${(stats.avg_generation_time / 1000).toFixed(1)}s`;
+                        avgTimeEl.textContent = formatted;
+                    } else {
+                        avgTimeEl.textContent = '--';
+                    }
+                }
+            },
+
+            exportLibrary() {
+                const data = SpecLibrary.exportLibrary();
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `openapi-library-${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                Toast.success('Biblioteca exportada correctamente');
+            },
+
+            async importLibrary(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+
+                    const merge = confirm('¿Deseas fusionar con la biblioteca existente? (Cancelar = Reemplazar completamente)');
+                    SpecLibrary.importLibrary(data, merge);
+
+                    Toast.success('Biblioteca importada correctamente');
+                    this.renderSpecs();
+                    this.updateCounts();
+                } catch (error) {
+                    Toast.error('Error al importar: ' + error.message);
+                }
+
+                e.target.value = '';
+            },
+
+            formatDate(timestamp) {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diff = now - date;
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+                if (days === 0) return 'Hoy';
+                if (days === 1) return 'Ayer';
+                if (days < 7) return `Hace ${days} días`;
+                if (days < 30) return `Hace ${Math.floor(days / 7)} semanas`;
+                if (days < 365) return `Hace ${Math.floor(days / 30)} meses`;
+                return `Hace ${Math.floor(days / 365)} años`;
+            },
+
+            formatDateTime(timestamp) {
+                const date = new Date(timestamp);
+                return date.toLocaleString('es-ES', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            },
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        };
+
+        // Initialize Library UI
+        document.addEventListener('DOMContentLoaded', () => {
+            LibraryUI.init();
+            ConfigUI.init();
+        });
+
+        // ================================
+        // Configuration UI Management
+        // ================================
+        const ConfigUI = {
+            currentSpecId: null,
+            currentMode: 'gui',
+
+            init() {
+                // Mode toggle
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.addEventListener('click', () => this.switchMode(btn.dataset.mode));
+                });
+
+                // Profile selector
+                document.getElementById('configProfileSelect').addEventListener('change', (e) => this.loadProfile(e.target.value));
+                document.getElementById('saveAsProfileBtn').addEventListener('click', () => this.saveAsProfile());
+
+                // Form submit
+                document.getElementById('configForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.saveConfigFromForm();
+                });
+
+                // Reset button
+                document.getElementById('resetConfigBtn').addEventListener('click', () => this.resetConfig());
+
+                // Auth type change
+                document.getElementById('cfgAuthType').addEventListener('change', (e) => this.updateAuthFields(e.target.value));
+
+                // Editor actions
+                document.getElementById('formatYamlBtn').addEventListener('click', () => this.formatYaml());
+                document.getElementById('validateYamlBtn').addEventListener('click', () => this.validateYaml());
+                document.getElementById('exportConfigBtn').addEventListener('click', () => this.exportConfig());
+                document.getElementById('importConfigInput').addEventListener('change', (e) => this.importConfig(e));
+                document.getElementById('saveYamlConfigBtn').addEventListener('click', () => this.saveConfigFromEditor());
+
+                // Real-time validation for form
+                document.getElementById('cfgServiceName').addEventListener('input', () => this.validateForm());
+            },
+
+            loadConfigForSpec(specId) {
+                this.currentSpecId = specId;
+                const config = SpecConfig.getConfig(specId);
+
+                // Load profiles
+                this.loadProfilesList();
+
+                // Load config to form
+                this.loadConfigToForm(config);
+
+                // Load config to editor
+                this.loadConfigToEditor(config);
+            },
+
+            loadProfilesList() {
+                const profiles = SpecConfig.getAllProfiles();
+                const select = document.getElementById('configProfileSelect');
+
+                select.innerHTML = '<option value="">-- Seleccionar perfil --</option>' +
+                    profiles.map(profile => `
+                        <option value="${profile.id}">
+                            ${this.escapeHtml(profile.name)}${profile.is_default ? ' (Default)' : ''}
+                        </option>
+                    `).join('');
+            },
+
+            loadProfile(profileId) {
+                if (!profileId || !this.currentSpecId) return;
+
+                const result = SpecConfig.applyProfile(this.currentSpecId, profileId);
+                if (result) {
+                    Toast.success('Perfil aplicado correctamente');
+                    this.loadConfigForSpec(this.currentSpecId);
+                } else {
+                    Toast.error('Error al aplicar el perfil');
+                }
+            },
+
+            saveAsProfile() {
+                const name = prompt('Nombre del perfil:');
+                if (!name) return;
+
+                const description = prompt('Descripción (opcional):') || '';
+
+                let config;
+                if (this.currentMode === 'gui') {
+                    config = this.getConfigFromForm();
+                } else {
+                    const yaml = document.getElementById('configEditor').value;
+                    try {
+                        config = SpecConfig.parseYAML(yaml);
+                    } catch (e) {
+                        Toast.error('Error al parsear configuración: ' + e.message);
+                        return;
+                    }
+                }
+
+                try {
+                    SpecConfig.saveProfile(name, description, config, false);
+                    Toast.success('Perfil guardado correctamente');
+                    this.loadProfilesList();
+                } catch (e) {
+                    Toast.error('Error al guardar perfil: ' + e.message);
+                }
+            },
+
+            switchMode(mode) {
+                this.currentMode = mode;
+
+                // Update buttons
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.mode === mode);
+                });
+
+                // Update content
+                document.getElementById('configGuiMode').style.display = mode === 'gui' ? 'block' : 'none';
+                document.getElementById('configEditorMode').style.display = mode === 'editor' ? 'block' : 'none';
+
+                // If switching to editor, sync from form
+                if (mode === 'editor') {
+                    const config = this.getConfigFromForm();
+                    this.loadConfigToEditor(config);
+                }
+            },
+
+            loadConfigToForm(config) {
+                document.getElementById('cfgServiceName').value = config.service_name || '';
+                document.getElementById('cfgServicePrefix').value = config.service_prefix || '';
+                document.getElementById('cfgMcpFramework').value = config.mcp_framework || 'fastmcp';
+                document.getElementById('cfgEnvironment').value = config.environment || 'development';
+                document.getElementById('cfgBaseUrl').value = config.base_url || '';
+                document.getElementById('cfgTimeout').value = config.timeout || 30;
+                document.getElementById('cfgLogLevel').value = config.log_level || 'INFO';
+                document.getElementById('cfgGenerateResources').checked = config.generate_resources !== false;
+                document.getElementById('cfgIncludeDeprecated').checked = config.include_deprecated === true;
+
+                // Auth
+                const authType = config.auth_config?.type || 'none';
+                document.getElementById('cfgAuthType').value = authType;
+                this.updateAuthFields(authType, config.auth_config);
+
+                // Retry
+                document.getElementById('cfgMaxRetries').value = config.retry_config?.max_retries || 3;
+                document.getElementById('cfgBackoffFactor').value = config.retry_config?.backoff_factor || 0.5;
+            },
+
+            loadConfigToEditor(config) {
+                const yaml = SpecConfig.configToYAML(config);
+                document.getElementById('configEditor').value = yaml;
+            },
+
+            getConfigFromForm() {
+                const authType = document.getElementById('cfgAuthType').value;
+                const authConfig = {
+                    type: authType
+                };
+
+                // Get auth-specific fields
+                if (authType !== 'none') {
+                    const authFields = document.getElementById('authConfigFields');
+                    authFields.querySelectorAll('input, select').forEach(input => {
+                        if (input.value) {
+                            authConfig[input.name.replace('auth_', '')] = input.value;
+                        }
+                    });
+                }
+
+                return {
+                    service_name: document.getElementById('cfgServiceName').value,
+                    service_prefix: document.getElementById('cfgServicePrefix').value,
+                    mcp_framework: document.getElementById('cfgMcpFramework').value,
+                    environment: document.getElementById('cfgEnvironment').value,
+                    base_url: document.getElementById('cfgBaseUrl').value,
+                    timeout: parseInt(document.getElementById('cfgTimeout').value),
+                    log_level: document.getElementById('cfgLogLevel').value,
+                    generate_resources: document.getElementById('cfgGenerateResources').checked,
+                    include_deprecated: document.getElementById('cfgIncludeDeprecated').checked,
+                    auth_config: authConfig,
+                    retry_config: {
+                        max_retries: parseInt(document.getElementById('cfgMaxRetries').value),
+                        backoff_factor: parseFloat(document.getElementById('cfgBackoffFactor').value),
+                        retry_statuses: [429, 500, 502, 503, 504]
+                    }
+                };
+            },
+
+            saveConfigFromForm() {
+                const config = this.getConfigFromForm();
+                const validation = SpecConfig.validateConfig(config);
+
+                this.showValidation('configValidation', validation);
+
+                if (validation.valid) {
+                    SpecConfig.saveConfig(this.currentSpecId, config);
+                    Toast.success('Configuración guardada correctamente');
+                    // Update editor if visible
+                    if (this.currentMode === 'editor') {
+                        this.loadConfigToEditor(config);
+                    }
+                } else {
+                    Toast.error('La configuración tiene errores');
+                }
+            },
+
+            saveConfigFromEditor() {
+                const yaml = document.getElementById('configEditor').value;
+
+                try {
+                    const config = SpecConfig.parseYAML(yaml);
+                    const validation = SpecConfig.validateConfig(config);
+
+                    this.showValidation('editorValidation', validation);
+
+                    if (validation.valid) {
+                        SpecConfig.saveConfig(this.currentSpecId, config);
+                        Toast.success('Configuración guardada correctamente');
+                        // Update form if visible
+                        if (this.currentMode === 'gui') {
+                            this.loadConfigToForm(config);
+                        }
+                    } else {
+                        Toast.error('La configuración tiene errores');
+                    }
+                } catch (e) {
+                    Toast.error('Error al parsear YAML: ' + e.message);
+                    this.showValidation('editorValidation', {
+                        valid: false,
+                        errors: ['Error de sintaxis: ' + e.message],
+                        warnings: []
+                    });
+                }
+            },
+
+            resetConfig() {
+                if (!confirm('¿Restablecer la configuración a valores por defecto?')) return;
+
+                const defaultConfig = SpecConfig._getDefaultConfig(this.currentSpecId);
+                this.loadConfigToForm(defaultConfig);
+                this.loadConfigToEditor(defaultConfig);
+                Toast.info('Configuración restablecida');
+            },
+
+            updateAuthFields(authType, authConfig = {}) {
+                const container = document.getElementById('authConfigFields');
+
+                if (authType === 'none') {
+                    container.style.display = 'none';
+                    return;
+                }
+
+                container.style.display = 'grid';
+
+                let html = '';
+                if (authType === 'api_key') {
+                    html = `
+                        <div class="form-group">
+                            <label>Nombre del header</label>
+                            <input type="text" name="auth_api_key_name" value="${authConfig.api_key_name || 'X-API-Key'}">
+                        </div>
+                        <div class="form-group">
+                            <label>Variable de entorno</label>
+                            <input type="text" name="auth_token_env" value="${authConfig.token_env || 'API_KEY'}">
+                        </div>
+                    `;
+                } else if (authType === 'bearer') {
+                    html = `
+                        <div class="form-group">
+                            <label>Nombre del header</label>
+                            <input type="text" name="auth_header_name" value="${authConfig.header_name || 'Authorization'}">
+                        </div>
+                        <div class="form-group">
+                            <label>Variable de entorno del token</label>
+                            <input type="text" name="auth_token_env" value="${authConfig.token_env || 'BEARER_TOKEN'}">
+                        </div>
+                    `;
+                } else if (authType === 'basic') {
+                    html = `
+                        <div class="form-group">
+                            <label>Variable de usuario</label>
+                            <input type="text" name="auth_username_env" value="${authConfig.username_env || 'API_USERNAME'}">
+                        </div>
+                        <div class="form-group">
+                            <label>Variable de contraseña</label>
+                            <input type="text" name="auth_password_env" value="${authConfig.password_env || 'API_PASSWORD'}">
+                        </div>
+                    `;
+                } else if (authType === 'oauth2') {
+                    html = `
+                        <div class="form-group full-width">
+                            <label>Variable de token OAuth2</label>
+                            <input type="text" name="auth_token_env" value="${authConfig.token_env || 'OAUTH2_TOKEN'}">
+                        </div>
+                    `;
+                }
+
+                container.innerHTML = html;
+            },
+
+            validateForm() {
+                const config = this.getConfigFromForm();
+                const validation = SpecConfig.validateConfig(config);
+                this.showValidation('configValidation', validation);
+                return validation.valid;
+            },
+
+            validateYaml() {
+                const yaml = document.getElementById('configEditor').value;
+
+                try {
+                    const config = SpecConfig.parseYAML(yaml);
+                    const validation = SpecConfig.validateConfig(config);
+                    this.showValidation('editorValidation', validation);
+
+                    if (validation.valid && validation.warnings.length === 0) {
+                        Toast.success('Configuración válida');
+                    } else if (validation.valid) {
+                        Toast.warning('Configuración válida con advertencias');
+                    } else {
+                        Toast.error('Configuración inválida');
+                    }
+                } catch (e) {
+                    Toast.error('Error de sintaxis: ' + e.message);
+                    this.showValidation('editorValidation', {
+                        valid: false,
+                        errors: ['Error de sintaxis: ' + e.message],
+                        warnings: []
+                    });
+                }
+            },
+
+            formatYaml() {
+                const yaml = document.getElementById('configEditor').value;
+
+                try {
+                    const config = SpecConfig.parseYAML(yaml);
+                    const formatted = SpecConfig.configToYAML(config);
+                    document.getElementById('configEditor').value = formatted;
+                    Toast.success('YAML formateado');
+                } catch (e) {
+                    Toast.error('Error al formatear: ' + e.message);
+                }
+            },
+
+            exportConfig() {
+                if (!this.currentSpecId) return;
+                SpecConfig.exportConfig(this.currentSpecId);
+                Toast.success('Configuración exportada');
+            },
+
+            async importConfig(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                try {
+                    const config = await SpecConfig.importConfig(file, this.currentSpecId);
+                    Toast.success('Configuración importada correctamente');
+                    this.loadConfigForSpec(this.currentSpecId);
+                } catch (error) {
+                    Toast.error('Error al importar: ' + error.message);
+                }
+
+                e.target.value = '';
+            },
+
+            showValidation(containerId, validation) {
+                const container = document.getElementById(containerId);
+
+                if (validation.errors.length === 0 && validation.warnings.length === 0) {
+                    container.style.display = 'none';
+                    return;
+                }
+
+                let html = '';
+
+                if (validation.errors.length > 0) {
+                    html += '<div class="validation-section error">';
+                    html += '<h5>Errores:</h5><ul>';
+                    validation.errors.forEach(err => {
+                        html += `<li>${this.escapeHtml(err)}</li>`;
+                    });
+                    html += '</ul></div>';
+                }
+
+                if (validation.warnings.length > 0) {
+                    html += '<div class="validation-section warning">';
+                    html += '<h5>Advertencias:</h5><ul>';
+                    validation.warnings.forEach(warn => {
+                        html += `<li>${this.escapeHtml(warn)}</li>`;
+                    });
+                    html += '</ul></div>';
+                }
+
+                container.innerHTML = html;
+                container.style.display = 'block';
+            },
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        };
+
+        // Extend LibraryUI to handle config tab
+        const originalSwitchTab = LibraryUI.switchTab;
+        LibraryUI.switchTab = function(tab) {
+            originalSwitchTab.call(this, tab);
+
+            // Update tab content visibility
+            document.getElementById('versionsTab').style.display = tab === 'versions' ? 'block' : 'none';
+            document.getElementById('generationsTab').style.display = tab === 'generations' ? 'block' : 'none';
+            document.getElementById('configTab').style.display = tab === 'config' ? 'block' : 'none';
+
+            // Render content
+            if (this.currentSpecId) {
+                if (tab === 'versions') {
+                    this.renderVersions(this.currentSpecId);
+                } else if (tab === 'generations') {
+                    this.renderGenerations(this.currentSpecId);
+                } else if (tab === 'config') {
+                    ConfigUI.loadConfigForSpec(this.currentSpecId);
+                }
+            }
+        };
     </script>
 </body>
 </html>

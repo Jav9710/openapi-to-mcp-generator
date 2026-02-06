@@ -4,17 +4,40 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
 
 ## Características Principales
 
+### Core Features
 - **Parser OpenAPI completo**: Soporta OpenAPI 3.0.x y 3.1.x con validación estricta
 - **Transformación automática**: Convierte endpoints en Tools y schemas en Resources
 - **Selección de endpoints**: Elige qué endpoints incluir mediante CLI, modo interactivo o GUI web
 - **Soporte FastMCP y MCP**: Genera servidores con FastMCP (recomendado) o MCP estándar
 - **Autenticación flexible**: Soporta API Key, Bearer Token, Basic Auth y OAuth2
 - **Cliente HTTP resiliente**: Reintentos automáticos con backoff exponencial
-- **Interfaz gráfica web**: Selecciona endpoints visualmente con drag & drop
-- **Modo standalone**: Ejecuta la GUI sin necesidad de archivo pre-cargado
-- **Carga desde URL**: Importa especificaciones OpenAPI desde URLs remotas
-- **Descarga como ZIP**: Genera y descarga servidores MCP comprimidos
-- **Despliegue Docker**: Imagen Docker lista para producción
+- **Despliegue Docker**: Imagen Docker lista para producción con Gunicorn
+
+### UI/UX Features ✨
+- **🌙 Dark/Light Mode**: Tema oscuro/claro con detección automática del sistema
+- **📋 Toast Notifications**: Sistema de notificaciones elegante y no intrusivo
+- **📂 Drag & Drop**: Arrastra archivos OpenAPI para cargarlos instantáneamente
+- **🕒 Recent Specs**: Historial de las últimas 10 especificaciones cargadas
+- **💾 Export/Import Config**: Exporta e importa configuraciones de selección de endpoints
+- **🔖 Presets**: Guarda y reutiliza selecciones de endpoints como presets
+- **📊 Progress Bars**: Barras de progreso detalladas con 10 pasos visibles
+- **⚡ Auto Cleanup**: Limpieza automática de archivos temporales y sesiones expiradas
+- **📚 Spec Library**: Biblioteca completa de especificaciones con versionado
+- **🔄 Version Control**: Historial de versiones con timeline visual y diff viewer
+- **⭐ Favorites & Tags**: Sistema de favoritos y etiquetado para organizar specs
+- **🔍 Advanced Search**: Búsqueda y filtrado avanzado de especificaciones
+- **📈 Generation Tracking**: Registro de todas las generaciones MCP realizadas
+- **⚙️ Advanced Configuration**: Configuración avanzada por especificación
+- **📝 Dual Mode Editor**: Formulario GUI y editor YAML/JSON con toggle
+- **🎨 Configuration Profiles**: Perfiles reutilizables (Development, Production, etc.)
+- **✅ Real-time Validation**: Validación en tiempo real con errores y advertencias
+- **💾 Config Import/Export**: Exporta e importa configuraciones en YAML
+
+### Developer Experience
+- **🎯 Smart Error Messages**: Errores con contexto, sugerencias de solución y links a docs
+- **🔍 Carga desde URL**: Importa especificaciones OpenAPI desde URLs remotas
+- **📦 Descarga como ZIP**: Genera y descarga servidores MCP comprimidos
+- **🚀 Live Preview**: Vista previa del código generado sin guardarlo
 
 ---
 
@@ -757,52 +780,67 @@ openapi-to-mcp serve --port 8080
 
 ## 🗺️ Roadmap
 
-### Fase 1: Mejoras de Experiencia de Usuario (v1.1) ✅
+### Fase 1: Mejoras de Experiencia de Usuario (v1.1) ✅ COMPLETADA
 
-#### 🌙 Modo Oscuro/Claro
+#### 🌙 Modo Oscuro/Claro ✅
 - [x] Toggle de tema en la interfaz web
 - [x] Persistencia de preferencia en localStorage
 - [x] Detección automática de preferencia del sistema
 
-#### ✅ Validación en Tiempo Real
+#### ✅ Validación en Tiempo Real ✅
 - [x] Validación del OpenAPI spec mientras se carga
 - [x] Indicadores visuales de errores y warnings
 - [x] Sugerencias de corrección automática
 - [x] Panel de diagnóstico con detalles de problemas
 
-#### 👁️ Preview en Vivo
+#### 👁️ Preview en Vivo ✅
 - [x] Vista previa del código MCP generado antes de descargar
 - [x] Syntax highlighting para Python
 - [x] Navegación por archivos generados
-- [ ] Diff viewer para comparar versiones
+- [x] Diff viewer para comparar versiones
 
-#### 📊 Estadísticas Avanzadas
+#### 📊 Estadísticas Avanzadas ✅
 - [x] Dashboard con métricas de uso
 - [x] Gráficos de endpoints más utilizados
-- [ ] Tiempo promedio de generación
-- [ ] Historial de especificaciones procesadas
+- [x] Historial de especificaciones recientes (últimas 10)
+- [x] Tiempo promedio de generación
+
+#### 🎯 Performance & DX ✅ NUEVO
+- [x] Cleanup automático de archivos temporales
+- [x] Limpieza de sesiones expiradas (>2 horas)
+- [x] Progress bars detallados (10 pasos)
+- [x] Mensajes de error mejorados con contexto y sugerencias
+- [x] Links a documentación en errores
+
+#### 🎨 UI/UX Improvements ✅ NUEVO
+- [x] Toast notifications (success, error, warning, info)
+- [x] Drag & drop para upload de archivos
+- [x] Recent specs list con reload rápido
+- [x] Export/Import de configuración de selección
+- [x] Gestión de presets (guardar/cargar selecciones)
+- [x] Mobile responsive design
 
 ---
 
-### Fase 2: Gestión de Especificaciones (v1.2)
+### Fase 2: Gestión de Especificaciones (v1.2) ✅ COMPLETADA
 
-#### 📁 Administrador de Especificaciones OpenAPI
-- [ ] Biblioteca de especificaciones cargadas
-- [ ] Organización por proyectos/carpetas
-- [ ] Búsqueda y filtrado de especificaciones
-- [ ] Etiquetado y categorización
-- [ ] Favoritos y accesos rápidos
+#### 📁 Administrador de Especificaciones OpenAPI ✅
+- [x] Biblioteca de especificaciones cargadas
+- [x] Organización por proyectos/carpetas
+- [x] Búsqueda y filtrado de especificaciones
+- [x] Etiquetado y categorización
+- [x] Favoritos y accesos rápidos
 
-#### 🔄 Versionado de Especificaciones
+#### 🔄 Versionado de Especificaciones ✅
 Sistema completo de control de versiones para OpenAPI specs:
 
-| Característica | Descripción |
-|---------------|-------------|
-| **Historial de versiones** | Registro automático de cada versión cargada |
-| **Timeline visual** | Línea de tiempo interactiva con todas las versiones |
-| **Diff entre versiones** | Comparación visual de cambios entre versiones |
-| **Restaurar versiones** | Capacidad de volver a versiones anteriores |
-| **Notas de cambio** | Comentarios y descripciones por versión |
+| Característica | Descripción | Estado |
+|---------------|-------------|---------|
+| **Historial de versiones** | Registro automático de cada versión cargada | ✅ |
+| **Timeline visual** | Línea de tiempo interactiva con todas las versiones | ✅ |
+| **Diff entre versiones** | Comparación visual de cambios entre versiones | ✅ |
+| **Restaurar versiones** | Capacidad de volver a versiones anteriores | ✅ |
+| **Notas de cambio** | Comentarios y descripciones por versión | ✅ |
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -829,19 +867,19 @@ Sistema completo de control de versiones para OpenAPI specs:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### 🔧 Registro de Generaciones MCP
-- [ ] Indicador visual de versiones con MCP generado
-- [ ] Fecha y hora exacta de cada generación
-- [ ] Configuración utilizada en cada generación
-- [ ] Enlace de descarga del ZIP generado (si está disponible)
-- [ ] Estadísticas de generación (tools, resources, tiempo)
+#### 🔧 Registro de Generaciones MCP ✅
+- [x] Indicador visual de versiones con MCP generado
+- [x] Fecha y hora exacta de cada generación
+- [x] Configuración utilizada en cada generación
+- [x] Enlace de descarga del ZIP generado (si está disponible)
+- [x] Estadísticas de generación (tools, resources, tiempo)
 
 ---
 
-### Fase 3: Configuración Avanzada de MCP (v1.3)
+### Fase 3: Configuración Avanzada de MCP (v1.3) ✅ COMPLETADA
 
-#### ⚙️ Zona de Configuración por Especificación
-Cada especificación tendrá su propia configuración de salida MCP:
+#### ⚙️ Zona de Configuración por Especificación ✅
+Cada especificación tiene su propia configuración de salida MCP:
 
 **Modo Editor (YAML/JSON):**
 ```yaml
@@ -892,11 +930,11 @@ endpoint_filters:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-- [ ] Toggle entre modo Editor y modo GUI
-- [ ] Validación de configuración en tiempo real
-- [ ] Perfiles de configuración reutilizables
-- [ ] Importar/Exportar configuraciones
-- [ ] Configuración heredada de plantillas
+- [x] Toggle entre modo Editor y modo GUI
+- [x] Validación de configuración en tiempo real
+- [x] Perfiles de configuración reutilizables (4 perfiles por defecto)
+- [x] Importar/Exportar configuraciones (YAML/JSON)
+- [x] Aplicar perfiles a especificaciones existentes
 
 ---
 
