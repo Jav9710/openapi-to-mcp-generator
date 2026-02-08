@@ -21,7 +21,7 @@ import time
 import uuid
 import webbrowser
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -111,11 +111,12 @@ def create_app(
     app.config["SECRET_KEY"] = os.urandom(24)
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
 
-    # Configurar base de datos
-    db_path = Path(output_dir) / "openapi_mcp.db"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    # Configurar base de datos (supports SQLite, PostgreSQL, MongoDB)
+    from .db_config import configure_flask_app, get_db_config
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    configure_flask_app(app, output_dir)
+    db_config = get_db_config()
+    logger.info(f"Database configured: {db_config.db_type.value}")
 
     # Inicializar DB y Auth
     from .database import init_db
@@ -219,6 +220,7 @@ def register_routes(app: Flask):
         """Pagina de login."""
         from flask_login import login_user, current_user
         from .auth import authenticate_user
+        from .audit import log_audit, AuditAction
 
         if current_user.is_authenticated:
             return redirect("/")
@@ -230,9 +232,24 @@ def register_routes(app: Flask):
             user = authenticate_user(username, password)
             if user:
                 login_user(user)
+                log_audit(
+                    action=AuditAction.LOGIN_SUCCESS,
+                    resource_type="user",
+                    resource_id=str(user.id),
+                    resource_name=user.username,
+                    user_id=user.id,
+                    username=user.username,
+                )
                 next_page = request.args.get("next", "/")
                 return redirect(next_page)
             else:
+                log_audit(
+                    action=AuditAction.LOGIN_FAILED,
+                    resource_type="user",
+                    resource_name=username,
+                    success=False,
+                    error_message="Invalid credentials",
+                )
                 return render_template("login.html", error="Usuario o contrasena incorrectos")
 
         return render_template("login.html")
@@ -242,6 +259,7 @@ def register_routes(app: Flask):
         """Pagina de registro."""
         from flask_login import login_user
         from .auth import register_user
+        from .audit import log_audit, AuditAction
 
         if request.method == "POST":
             username = request.form.get("username", "").strip()
@@ -261,6 +279,15 @@ def register_routes(app: Flask):
             try:
                 user = register_user(username, email, password)
                 login_user(user)
+                log_audit(
+                    action=AuditAction.USER_CREATED,
+                    resource_type="user",
+                    resource_id=str(user.id),
+                    resource_name=user.username,
+                    user_id=user.id,
+                    username=user.username,
+                    details={"email": email},
+                )
                 return redirect("/")
             except ValueError as e:
                 return render_template("register.html", error=str(e))
@@ -270,7 +297,16 @@ def register_routes(app: Flask):
     @app.route("/logout")
     def logout():
         """Cerrar sesion."""
-        from flask_login import logout_user
+        from flask_login import logout_user, current_user
+        from .audit import log_audit, AuditAction
+
+        if current_user.is_authenticated:
+            log_audit(
+                action=AuditAction.LOGOUT,
+                resource_type="user",
+                resource_id=str(current_user.id),
+                resource_name=current_user.username,
+            )
         logout_user()
         return redirect("/login")
 
@@ -1429,6 +1465,1035 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"success": True})
 
+    # ========== Audit Log Routes ==========
+
+    @app.route("/api/audit/logs")
+    def get_audit_logs():
+        """Get audit logs with filtering (admin only)."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .audit import query_audit_logs, AuditAction, AuditSeverity
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        # Parse filters from query params
+        user_id = request.args.get("user_id", type=int)
+        workspace_id = request.args.get("workspace_id", type=int)
+        action = request.args.get("action")
+        severity = request.args.get("severity")
+        resource_type = request.args.get("resource_type")
+        success = request.args.get("success")
+        limit = request.args.get("limit", 100, type=int)
+        offset = request.args.get("offset", 0, type=int)
+
+        # Parse dates
+        start_date = None
+        end_date = None
+        if request.args.get("start_date"):
+            try:
+                start_date = datetime.fromisoformat(request.args.get("start_date"))
+            except ValueError:
+                pass
+        if request.args.get("end_date"):
+            try:
+                end_date = datetime.fromisoformat(request.args.get("end_date"))
+            except ValueError:
+                pass
+
+        # Convert string params to enums
+        action_enum = None
+        if action:
+            try:
+                action_enum = AuditAction(action)
+            except ValueError:
+                pass
+
+        severity_enum = None
+        if severity:
+            try:
+                severity_enum = AuditSeverity(severity)
+            except ValueError:
+                pass
+
+        success_bool = None
+        if success is not None:
+            success_bool = success.lower() == "true"
+
+        logs, total = query_audit_logs(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            action=action_enum,
+            severity=severity_enum,
+            resource_type=resource_type,
+            start_date=start_date,
+            end_date=end_date,
+            success=success_bool,
+            limit=min(limit, 500),
+            offset=offset,
+        )
+
+        return jsonify({
+            "logs": [log.to_dict() for log in logs],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        })
+
+    @app.route("/api/audit/summary")
+    def get_audit_summary():
+        """Get audit summary statistics (admin only)."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .audit import get_audit_summary
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        summary = get_audit_summary(days=min(days, 365))
+        return jsonify(summary)
+
+    @app.route("/api/audit/export")
+    def export_audit_logs():
+        """Export audit logs (admin only)."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .audit import export_audit_logs as do_export, log_audit, AuditAction
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        format = request.args.get("format", "json")
+        if format not in ("json", "csv"):
+            return jsonify({"error": "Invalid format. Use 'json' or 'csv'"}), 400
+
+        # Get filters
+        user_id = request.args.get("user_id", type=int)
+        workspace_id = request.args.get("workspace_id", type=int)
+
+        data = do_export(format=format, user_id=user_id, workspace_id=workspace_id)
+
+        # Log the export action
+        log_audit(
+            action=AuditAction.AUDIT_LOG_EXPORTED,
+            resource_type="audit_log",
+            details={"format": format, "user_id": user_id, "workspace_id": workspace_id}
+        )
+
+        if format == "csv":
+            return send_file(
+                io.BytesIO(data.encode("utf-8")),
+                mimetype="text/csv",
+                as_attachment=True,
+                download_name=f"audit_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+        else:
+            return send_file(
+                io.BytesIO(data.encode("utf-8")),
+                mimetype="application/json",
+                as_attachment=True,
+                download_name=f"audit_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            )
+
+    @app.route("/api/audit/actions")
+    def get_audit_actions():
+        """Get available audit action types."""
+        from .audit import AuditAction, AuditSeverity
+
+        return jsonify({
+            "actions": [a.value for a in AuditAction],
+            "severities": [s.value for s in AuditSeverity],
+        })
+
+    # ========== Encryption Routes ==========
+
+    @app.route("/api/encryption/encrypt", methods=["POST"])
+    def encrypt_spec_route():
+        """Encrypt a specification."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import encrypt_spec, EncryptionError
+        from .audit import log_audit, AuditAction
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Editor access required"}), 403
+
+        data = request.json
+        spec_id = data.get("spec_id")
+        content = data.get("content")
+        password = data.get("password")
+        workspace_id = data.get("workspace_id")
+        filename = data.get("filename")
+        title = data.get("title")
+        version = data.get("version")
+
+        if not spec_id or not content or not password:
+            return jsonify({"error": "spec_id, content, and password are required"}), 400
+
+        if len(password) < 8:
+            return jsonify({"error": "Password must be at least 8 characters"}), 400
+
+        try:
+            encrypted_spec = encrypt_spec(
+                spec_id=spec_id,
+                content=content,
+                password=password,
+                workspace_id=workspace_id,
+                user_id=current_user.id,
+                filename=filename,
+                title=title,
+                version=version,
+            )
+
+            log_audit(
+                action=AuditAction.SPEC_ENCRYPTED,
+                resource_type="spec",
+                resource_id=spec_id,
+                resource_name=title or filename,
+                workspace_id=workspace_id,
+            )
+
+            return jsonify({
+                "success": True,
+                "spec_id": spec_id,
+                "encrypted_at": encrypted_spec.encrypted_at.isoformat(),
+            })
+
+        except EncryptionError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            logger.exception("Encryption failed")
+            return jsonify({"error": f"Encryption failed: {str(e)}"}), 500
+
+    @app.route("/api/encryption/decrypt", methods=["POST"])
+    def decrypt_spec_route():
+        """Decrypt a specification."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import decrypt_spec, DecryptionError
+        from .audit import log_audit, AuditAction
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Editor access required"}), 403
+
+        data = request.json
+        spec_id = data.get("spec_id")
+        password = data.get("password")
+
+        if not spec_id or not password:
+            return jsonify({"error": "spec_id and password are required"}), 400
+
+        try:
+            content = decrypt_spec(spec_id, password)
+
+            log_audit(
+                action=AuditAction.SPEC_DECRYPTED,
+                resource_type="spec",
+                resource_id=spec_id,
+            )
+
+            return jsonify({
+                "success": True,
+                "spec_id": spec_id,
+                "content": content,
+            })
+
+        except DecryptionError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            logger.exception("Decryption failed")
+            return jsonify({"error": f"Decryption failed: {str(e)}"}), 500
+
+    @app.route("/api/encryption/list")
+    def list_encrypted_specs_route():
+        """List encrypted specifications."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import list_encrypted_specs
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        workspace_id = request.args.get("workspace_id", type=int)
+
+        specs = list_encrypted_specs(workspace_id=workspace_id)
+        return jsonify({
+            "specs": [s.to_dict() for s in specs],
+            "count": len(specs),
+        })
+
+    @app.route("/api/encryption/status/<spec_id>")
+    def get_encryption_status_route(spec_id):
+        """Get encryption status for a spec."""
+        from flask_login import current_user
+        from .encryption import get_encryption_status
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        status = get_encryption_status(spec_id)
+        if status:
+            return jsonify(status)
+        else:
+            return jsonify({"encrypted": False, "spec_id": spec_id})
+
+    @app.route("/api/encryption/rotate", methods=["POST"])
+    def rotate_encryption_key_route():
+        """Rotate encryption key for a spec."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import rotate_encryption_key
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        if not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Editor access required"}), 403
+
+        data = request.json
+        spec_id = data.get("spec_id")
+        old_password = data.get("old_password")
+        new_password = data.get("new_password")
+
+        if not spec_id or not old_password or not new_password:
+            return jsonify({"error": "spec_id, old_password, and new_password are required"}), 400
+
+        if len(new_password) < 8:
+            return jsonify({"error": "New password must be at least 8 characters"}), 400
+
+        success = rotate_encryption_key(spec_id, old_password, new_password)
+        if success:
+            return jsonify({"success": True, "spec_id": spec_id})
+        else:
+            return jsonify({"error": "Key rotation failed. Check passwords."}), 400
+
+    @app.route("/api/encryption/delete/<spec_id>", methods=["DELETE"])
+    def delete_encrypted_spec_route(spec_id):
+        """Delete an encrypted specification."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .encryption import delete_encrypted_spec
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        if not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        deleted = delete_encrypted_spec(spec_id)
+        if deleted:
+            return jsonify({"success": True, "spec_id": spec_id})
+        else:
+            return jsonify({"error": "Encrypted spec not found"}), 404
+
+    # ========== Data Retention Routes ==========
+
+    @app.route("/api/retention/policies")
+    def list_retention_policies_route():
+        """List all retention policies."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import list_retention_policies
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        workspace_id = request.args.get("workspace_id", type=int)
+        policies = list_retention_policies(workspace_id)
+        return jsonify({"policies": policies})
+
+    @app.route("/api/retention/policies", methods=["POST"])
+    def set_retention_policy_route():
+        """Set or update a retention policy."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import set_retention_policy, DataType, RetentionAction
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        data_type_str = data.get("data_type")
+        retention_days = data.get("retention_days")
+        action_str = data.get("action", "delete")
+        workspace_id = data.get("workspace_id")
+
+        if not data_type_str or retention_days is None:
+            return jsonify({"error": "data_type and retention_days are required"}), 400
+
+        try:
+            data_type = DataType(data_type_str)
+            action = RetentionAction(action_str)
+        except ValueError:
+            return jsonify({"error": "Invalid data_type or action"}), 400
+
+        policy = set_retention_policy(
+            data_type=data_type,
+            retention_days=retention_days,
+            action=action,
+            workspace_id=workspace_id,
+            user_id=current_user.id,
+        )
+
+        return jsonify({"success": True, "policy": policy.to_dict()})
+
+    @app.route("/api/retention/apply", methods=["POST"])
+    def apply_retention_route():
+        """Apply retention policies."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import apply_retention_policy, apply_all_retention_policies, DataType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        data_type_str = data.get("data_type")
+        workspace_id = data.get("workspace_id")
+        dry_run = data.get("dry_run", False)
+
+        if data_type_str:
+            try:
+                data_type = DataType(data_type_str)
+            except ValueError:
+                return jsonify({"error": "Invalid data_type"}), 400
+
+            result = apply_retention_policy(data_type, workspace_id, dry_run)
+            return jsonify(result)
+        else:
+            results = apply_all_retention_policies(workspace_id, dry_run)
+            return jsonify({"results": results})
+
+    @app.route("/api/retention/stats")
+    def get_retention_stats_route():
+        """Get retention statistics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import get_retention_stats
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        stats = get_retention_stats()
+        return jsonify({"stats": stats})
+
+    @app.route("/api/retention/history")
+    def get_retention_history_route():
+        """Get retention execution history."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .retention import get_execution_history, DataType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data_type_str = request.args.get("data_type")
+        limit = request.args.get("limit", 100, type=int)
+
+        data_type = None
+        if data_type_str:
+            try:
+                data_type = DataType(data_type_str)
+            except ValueError:
+                pass
+
+        history = get_execution_history(data_type, min(limit, 500))
+        return jsonify({"history": [h.to_dict() for h in history]})
+
+    @app.route("/api/retention/data-types")
+    def get_data_types_route():
+        """Get available data types for retention policies."""
+        from .retention import DataType, RetentionAction, DEFAULT_RETENTION
+
+        return jsonify({
+            "data_types": [dt.value for dt in DataType],
+            "actions": [a.value for a in RetentionAction],
+            "defaults": {dt.value: days for dt, days in DEFAULT_RETENTION.items()},
+        })
+
+    # ========== Metrics & Dashboard Routes ==========
+
+    @app.route("/api/metrics/overview")
+    def get_overview_metrics_route():
+        """Get platform overview metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_overview_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        return jsonify(get_overview_metrics())
+
+    @app.route("/api/metrics/users")
+    def get_user_metrics_route():
+        """Get user metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_user_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_user_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/activity")
+    def get_activity_metrics_route():
+        """Get activity metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_activity_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_activity_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/workspaces")
+    def get_workspace_metrics_route():
+        """Get workspace metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_workspace_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        return jsonify(get_workspace_metrics())
+
+    @app.route("/api/metrics/generations")
+    def get_generation_metrics_route():
+        """Get MCP generation metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_generation_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_generation_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/api-usage")
+    def get_api_usage_metrics_route():
+        """Get API usage metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_api_usage_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_api_usage_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/security")
+    def get_security_metrics_route():
+        """Get security metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_security_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_security_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/dashboard")
+    def get_dashboard_metrics_route():
+        """Get all dashboard metrics in one call."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_all_dashboard_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_all_dashboard_metrics(min(days, 365)))
+
+    # ========== Alerts Routes ==========
+
+    @app.route("/api/alerts/rules", methods=["GET"])
+    def list_alert_rules_route():
+        """List alert rules."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import list_alert_rules
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        workspace_id = request.args.get("workspace_id", type=int)
+        is_active = request.args.get("is_active")
+        if is_active is not None:
+            is_active = is_active.lower() == "true"
+
+        rules = list_alert_rules(workspace_id, is_active)
+        return jsonify({"rules": [r.to_dict() for r in rules]})
+
+    @app.route("/api/alerts/rules", methods=["POST"])
+    def create_alert_rule_route():
+        """Create a new alert rule."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import create_alert_rule, AlertType, AlertSeverity
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        try:
+            alert_type = AlertType(data.get("alert_type"))
+            severity = AlertSeverity(data.get("severity", "warning"))
+        except ValueError:
+            return jsonify({"error": "Invalid alert_type or severity"}), 400
+
+        rule = create_alert_rule(
+            name=data.get("name"),
+            alert_type=alert_type,
+            threshold_value=data.get("threshold_value", 5),
+            severity=severity,
+            threshold_period_minutes=data.get("threshold_period_minutes", 60),
+            notification_channels=data.get("notification_channels", []),
+            cooldown_minutes=data.get("cooldown_minutes", 30),
+            workspace_id=data.get("workspace_id"),
+            user_id=current_user.id,
+            description=data.get("description"),
+        )
+
+        return jsonify({"success": True, "rule": rule.to_dict()})
+
+    @app.route("/api/alerts/rules/<int:rule_id>", methods=["PUT"])
+    def update_alert_rule_route(rule_id):
+        """Update an alert rule."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import update_alert_rule
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        rule = update_alert_rule(rule_id, **data)
+        if rule:
+            return jsonify({"success": True, "rule": rule.to_dict()})
+        return jsonify({"error": "Rule not found"}), 404
+
+    @app.route("/api/alerts/rules/<int:rule_id>", methods=["DELETE"])
+    def delete_alert_rule_route(rule_id):
+        """Delete an alert rule."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import delete_alert_rule
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        if delete_alert_rule(rule_id):
+            return jsonify({"success": True})
+        return jsonify({"error": "Rule not found"}), 404
+
+    @app.route("/api/alerts", methods=["GET"])
+    def list_alerts_route():
+        """List alerts."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import list_alerts, AlertStatus, AlertSeverity, AlertType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Access denied"}), 403
+
+        workspace_id = request.args.get("workspace_id", type=int)
+        status_str = request.args.get("status")
+        severity_str = request.args.get("severity")
+        type_str = request.args.get("type")
+        limit = request.args.get("limit", 100, type=int)
+        offset = request.args.get("offset", 0, type=int)
+
+        status = AlertStatus(status_str) if status_str else None
+        severity = AlertSeverity(severity_str) if severity_str else None
+        alert_type = AlertType(type_str) if type_str else None
+
+        alerts, total = list_alerts(
+            workspace_id=workspace_id,
+            status=status,
+            severity=severity,
+            alert_type=alert_type,
+            limit=min(limit, 500),
+            offset=offset,
+        )
+
+        return jsonify({
+            "alerts": [a.to_dict() for a in alerts],
+            "total": total,
+        })
+
+    @app.route("/api/alerts/<int:alert_id>/acknowledge", methods=["POST"])
+    def acknowledge_alert_route(alert_id):
+        """Acknowledge an alert."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import acknowledge_alert
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Access denied"}), 403
+
+        alert = acknowledge_alert(alert_id, current_user.id)
+        if alert:
+            return jsonify({"success": True, "alert": alert.to_dict()})
+        return jsonify({"error": "Alert not found"}), 404
+
+    @app.route("/api/alerts/<int:alert_id>/resolve", methods=["POST"])
+    def resolve_alert_route(alert_id):
+        """Resolve an alert."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import resolve_alert
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Access denied"}), 403
+
+        alert = resolve_alert(alert_id, current_user.id)
+        if alert:
+            return jsonify({"success": True, "alert": alert.to_dict()})
+        return jsonify({"error": "Alert not found"}), 404
+
+    @app.route("/api/alerts/<int:alert_id>/snooze", methods=["POST"])
+    def snooze_alert_route(alert_id):
+        """Snooze an alert."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import snooze_alert
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Access denied"}), 403
+
+        data = request.json
+        minutes = data.get("minutes", 60)
+        alert = snooze_alert(alert_id, minutes)
+        if alert:
+            return jsonify({"success": True, "alert": alert.to_dict()})
+        return jsonify({"error": "Alert not found"}), 404
+
+    @app.route("/api/alerts/check", methods=["POST"])
+    def check_alerts_route():
+        """Manually trigger alert checking."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import check_alert_rules
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        new_alerts = check_alert_rules()
+        return jsonify({
+            "success": True,
+            "new_alerts": len(new_alerts),
+            "alerts": [a.to_dict() for a in new_alerts],
+        })
+
+    @app.route("/api/alerts/count")
+    def get_alert_count_route():
+        """Get count of active alerts."""
+        from flask_login import current_user
+        from .alerts import get_active_alert_count
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        return jsonify(get_active_alert_count())
+
+    @app.route("/api/alerts/types")
+    def get_alert_types_route():
+        """Get available alert types."""
+        from .alerts import AlertType, AlertSeverity, AlertStatus
+
+        return jsonify({
+            "types": [t.value for t in AlertType],
+            "severities": [s.value for s in AlertSeverity],
+            "statuses": [s.value for s in AlertStatus],
+        })
+
+    # ========== Reports Routes ==========
+
+    @app.route("/api/reports/scheduled", methods=["GET"])
+    def list_scheduled_reports_route():
+        """List scheduled reports."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import list_scheduled_reports
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        workspace_id = request.args.get("workspace_id", type=int)
+        reports = list_scheduled_reports(workspace_id)
+        return jsonify({"reports": [r.to_dict() for r in reports]})
+
+    @app.route("/api/reports/scheduled", methods=["POST"])
+    def create_scheduled_report_route():
+        """Create a new scheduled report."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import (
+            create_scheduled_report, ReportType, ReportSchedule, ReportFormat
+        )
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        try:
+            report_type = ReportType(data.get("report_type"))
+            schedule = ReportSchedule(data.get("schedule"))
+            format = ReportFormat(data.get("format", "json"))
+        except ValueError:
+            return jsonify({"error": "Invalid report_type, schedule, or format"}), 400
+
+        if not data.get("name"):
+            return jsonify({"error": "Report name is required"}), 400
+
+        scheduled = create_scheduled_report(
+            name=data.get("name"),
+            report_type=report_type,
+            schedule=schedule,
+            format=format,
+            email_recipients=data.get("email_recipients", []),
+            webhook_url=data.get("webhook_url"),
+            workspace_id=data.get("workspace_id"),
+            user_id=current_user.id,
+        )
+
+        return jsonify({"success": True, "report": scheduled.to_dict()})
+
+    @app.route("/api/reports/scheduled/<int:report_id>", methods=["DELETE"])
+    def delete_scheduled_report_route(report_id):
+        """Delete a scheduled report."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import ScheduledReport
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        scheduled = db.session.get(ScheduledReport, report_id)
+        if not scheduled:
+            return jsonify({"error": "Scheduled report not found"}), 404
+
+        db.session.delete(scheduled)
+        db.session.commit()
+        return jsonify({"success": True})
+
+    @app.route("/api/reports/generate", methods=["POST"])
+    def generate_report_route():
+        """Generate a report on demand."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import generate_report, ReportType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        try:
+            report_type = ReportType(data.get("report_type"))
+        except ValueError:
+            return jsonify({"error": "Invalid report_type"}), 400
+
+        period_days = data.get("period_days", 30)
+        workspace_id = data.get("workspace_id")
+
+        report = generate_report(
+            report_type=report_type,
+            period_days=min(period_days, 365),
+            workspace_id=workspace_id,
+            user_id=current_user.id,
+        )
+
+        return jsonify({
+            "success": True,
+            "report": report.to_dict(),
+            "data": report.data,
+        })
+
+    @app.route("/api/reports/generated", methods=["GET"])
+    def list_generated_reports_route():
+        """List generated reports."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import list_generated_reports, ReportType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        report_type_str = request.args.get("report_type")
+        workspace_id = request.args.get("workspace_id", type=int)
+        limit = request.args.get("limit", 50, type=int)
+
+        report_type = None
+        if report_type_str:
+            try:
+                report_type = ReportType(report_type_str)
+            except ValueError:
+                pass
+
+        reports = list_generated_reports(
+            report_type=report_type,
+            workspace_id=workspace_id,
+            limit=min(limit, 200),
+        )
+
+        return jsonify({"reports": [r.to_dict() for r in reports]})
+
+    @app.route("/api/reports/generated/<int:report_id>", methods=["GET"])
+    def get_generated_report_route(report_id):
+        """Get a specific generated report with data."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import GeneratedReport
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        report = db.session.get(GeneratedReport, report_id)
+        if not report:
+            return jsonify({"error": "Report not found"}), 404
+
+        return jsonify({
+            "report": report.to_dict(),
+            "data": report.data,
+        })
+
+    @app.route("/api/reports/generated/<int:report_id>/export", methods=["GET"])
+    def export_report_route(report_id):
+        """Export a generated report in specified format."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import GeneratedReport, export_report, ReportFormat
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        format_str = request.args.get("format", "json")
+        try:
+            format = ReportFormat(format_str)
+        except ValueError:
+            return jsonify({"error": "Invalid format"}), 400
+
+        report = db.session.get(GeneratedReport, report_id)
+        if not report:
+            return jsonify({"error": "Report not found"}), 404
+
+        content = export_report(report, format)
+
+        if format == ReportFormat.JSON:
+            return app.response_class(
+                response=content,
+                status=200,
+                mimetype="application/json"
+            )
+        elif format == ReportFormat.CSV:
+            return app.response_class(
+                response=content,
+                status=200,
+                mimetype="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=report_{report_id}.csv"}
+            )
+        elif format == ReportFormat.HTML:
+            return app.response_class(
+                response=content,
+                status=200,
+                mimetype="text/html"
+            )
+
+    @app.route("/api/reports/run-scheduled", methods=["POST"])
+    def run_scheduled_reports_route():
+        """Manually run all due scheduled reports."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import run_scheduled_reports
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        generated = run_scheduled_reports()
+        return jsonify({
+            "success": True,
+            "reports_generated": len(generated),
+            "reports": [r.to_dict() for r in generated],
+        })
+
+    @app.route("/api/reports/types")
+    def get_report_types_route():
+        """Get available report types."""
+        from .reports import ReportType, ReportSchedule, ReportFormat
+
+        return jsonify({
+            "types": [t.value for t in ReportType],
+            "schedules": [s.value for s in ReportSchedule],
+            "formats": [f.value for f in ReportFormat],
+        })
+
+    # ========== Database Health & Info Routes ==========
+
+    @app.route("/api/health")
+    def health_check():
+        """Health check endpoint."""
+        from .db_config import check_database_health
+
+        db_health = check_database_health()
+        status_code = 200 if db_health["healthy"] else 503
+
+        return jsonify({
+            "status": "healthy" if db_health["healthy"] else "unhealthy",
+            "database": db_health,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }), status_code
+
+    @app.route("/api/database/info")
+    def database_info_route():
+        """Get database configuration and status (admin only)."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .db_config import get_db_config, check_database_health, get_env_documentation
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        config = get_db_config()
+        health = check_database_health()
+
+        return jsonify({
+            "type": config.db_type.value,
+            "is_postgresql": config.is_postgresql(),
+            "is_mongodb": config.is_mongodb(),
+            "is_sqlite": config.is_sqlite(),
+            "health": health,
+            "pool_config": config.get_pool_config() if config.is_postgresql() else None,
+            "env_documentation": get_env_documentation(),
+        })
+
+    @app.route("/api/database/types")
+    def database_types_route():
+        """Get available database types."""
+        from .db_config import DatabaseType, get_db_config
+
+        return jsonify({
+            "types": [t.value for t in DatabaseType],
+            "current": get_db_config().db_type.value,
+        })
+
     # ========== App Routes ==========
 
     @app.route("/")
@@ -1540,6 +2605,23 @@ def register_routes(app: Flask):
                             "spec", spec.title or file.filename,
                             f"{stats['total']} endpoints"
                         )
+            except Exception:
+                pass
+
+            # Enterprise audit logging
+            try:
+                from .audit import log_audit, AuditAction
+                log_audit(
+                    action=AuditAction.SPEC_UPLOADED,
+                    resource_type="spec",
+                    resource_id=session_id,
+                    resource_name=spec.title or file.filename,
+                    details={
+                        "filename": file.filename,
+                        "endpoints_count": stats["total"],
+                        "version": spec.version,
+                    }
+                )
             except Exception:
                 pass
 
@@ -2263,6 +3345,25 @@ def register_routes(app: Flask):
                             )
                 except Exception:
                     pass
+
+            # Enterprise audit logging
+            try:
+                from .audit import log_audit, AuditAction
+                log_audit(
+                    action=AuditAction.MCP_GENERATED if result.success else AuditAction.MCP_GENERATION_FAILED,
+                    resource_type="mcp_server",
+                    resource_name=service_name,
+                    success=result.success,
+                    details={
+                        "framework": mcp_framework,
+                        "tools_count": len(result.tools_generated) if result.success else 0,
+                        "endpoints_count": len(selected_endpoints),
+                        "generation_time_ms": generation_time,
+                    },
+                    error_message="; ".join(result.errors) if result.errors else None,
+                )
+            except Exception:
+                pass
 
             generation_time = round((time.time() - gen_start_time) * 1000)
 
