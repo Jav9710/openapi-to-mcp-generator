@@ -1919,6 +1919,110 @@ def register_routes(app: Flask):
             "defaults": {dt.value: days for dt, days in DEFAULT_RETENTION.items()},
         })
 
+    # ========== Metrics & Dashboard Routes ==========
+
+    @app.route("/api/metrics/overview")
+    def get_overview_metrics_route():
+        """Get platform overview metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_overview_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        return jsonify(get_overview_metrics())
+
+    @app.route("/api/metrics/users")
+    def get_user_metrics_route():
+        """Get user metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_user_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_user_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/activity")
+    def get_activity_metrics_route():
+        """Get activity metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_activity_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_activity_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/workspaces")
+    def get_workspace_metrics_route():
+        """Get workspace metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_workspace_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        return jsonify(get_workspace_metrics())
+
+    @app.route("/api/metrics/generations")
+    def get_generation_metrics_route():
+        """Get MCP generation metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_generation_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_generation_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/api-usage")
+    def get_api_usage_metrics_route():
+        """Get API usage metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_api_usage_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_api_usage_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/security")
+    def get_security_metrics_route():
+        """Get security metrics."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_security_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_security_metrics(min(days, 365)))
+
+    @app.route("/api/metrics/dashboard")
+    def get_dashboard_metrics_route():
+        """Get all dashboard metrics in one call."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .metrics import get_all_dashboard_metrics
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        days = request.args.get("days", 30, type=int)
+        return jsonify(get_all_dashboard_metrics(min(days, 365)))
+
     # ========== App Routes ==========
 
     @app.route("/")
