@@ -2023,6 +2023,209 @@ def register_routes(app: Flask):
         days = request.args.get("days", 30, type=int)
         return jsonify(get_all_dashboard_metrics(min(days, 365)))
 
+    # ========== Alerts Routes ==========
+
+    @app.route("/api/alerts/rules", methods=["GET"])
+    def list_alert_rules_route():
+        """List alert rules."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import list_alert_rules
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        workspace_id = request.args.get("workspace_id", type=int)
+        is_active = request.args.get("is_active")
+        if is_active is not None:
+            is_active = is_active.lower() == "true"
+
+        rules = list_alert_rules(workspace_id, is_active)
+        return jsonify({"rules": [r.to_dict() for r in rules]})
+
+    @app.route("/api/alerts/rules", methods=["POST"])
+    def create_alert_rule_route():
+        """Create a new alert rule."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import create_alert_rule, AlertType, AlertSeverity
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        try:
+            alert_type = AlertType(data.get("alert_type"))
+            severity = AlertSeverity(data.get("severity", "warning"))
+        except ValueError:
+            return jsonify({"error": "Invalid alert_type or severity"}), 400
+
+        rule = create_alert_rule(
+            name=data.get("name"),
+            alert_type=alert_type,
+            threshold_value=data.get("threshold_value", 5),
+            severity=severity,
+            threshold_period_minutes=data.get("threshold_period_minutes", 60),
+            notification_channels=data.get("notification_channels", []),
+            cooldown_minutes=data.get("cooldown_minutes", 30),
+            workspace_id=data.get("workspace_id"),
+            user_id=current_user.id,
+            description=data.get("description"),
+        )
+
+        return jsonify({"success": True, "rule": rule.to_dict()})
+
+    @app.route("/api/alerts/rules/<int:rule_id>", methods=["PUT"])
+    def update_alert_rule_route(rule_id):
+        """Update an alert rule."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import update_alert_rule
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        rule = update_alert_rule(rule_id, **data)
+        if rule:
+            return jsonify({"success": True, "rule": rule.to_dict()})
+        return jsonify({"error": "Rule not found"}), 404
+
+    @app.route("/api/alerts/rules/<int:rule_id>", methods=["DELETE"])
+    def delete_alert_rule_route(rule_id):
+        """Delete an alert rule."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import delete_alert_rule
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        if delete_alert_rule(rule_id):
+            return jsonify({"success": True})
+        return jsonify({"error": "Rule not found"}), 404
+
+    @app.route("/api/alerts", methods=["GET"])
+    def list_alerts_route():
+        """List alerts."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import list_alerts, AlertStatus, AlertSeverity, AlertType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Access denied"}), 403
+
+        workspace_id = request.args.get("workspace_id", type=int)
+        status_str = request.args.get("status")
+        severity_str = request.args.get("severity")
+        type_str = request.args.get("type")
+        limit = request.args.get("limit", 100, type=int)
+        offset = request.args.get("offset", 0, type=int)
+
+        status = AlertStatus(status_str) if status_str else None
+        severity = AlertSeverity(severity_str) if severity_str else None
+        alert_type = AlertType(type_str) if type_str else None
+
+        alerts, total = list_alerts(
+            workspace_id=workspace_id,
+            status=status,
+            severity=severity,
+            alert_type=alert_type,
+            limit=min(limit, 500),
+            offset=offset,
+        )
+
+        return jsonify({
+            "alerts": [a.to_dict() for a in alerts],
+            "total": total,
+        })
+
+    @app.route("/api/alerts/<int:alert_id>/acknowledge", methods=["POST"])
+    def acknowledge_alert_route(alert_id):
+        """Acknowledge an alert."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import acknowledge_alert
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Access denied"}), 403
+
+        alert = acknowledge_alert(alert_id, current_user.id)
+        if alert:
+            return jsonify({"success": True, "alert": alert.to_dict()})
+        return jsonify({"error": "Alert not found"}), 404
+
+    @app.route("/api/alerts/<int:alert_id>/resolve", methods=["POST"])
+    def resolve_alert_route(alert_id):
+        """Resolve an alert."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import resolve_alert
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Access denied"}), 403
+
+        alert = resolve_alert(alert_id, current_user.id)
+        if alert:
+            return jsonify({"success": True, "alert": alert.to_dict()})
+        return jsonify({"error": "Alert not found"}), 404
+
+    @app.route("/api/alerts/<int:alert_id>/snooze", methods=["POST"])
+    def snooze_alert_route(alert_id):
+        """Snooze an alert."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import snooze_alert
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.EDITOR):
+            return jsonify({"error": "Access denied"}), 403
+
+        data = request.json
+        minutes = data.get("minutes", 60)
+        alert = snooze_alert(alert_id, minutes)
+        if alert:
+            return jsonify({"success": True, "alert": alert.to_dict()})
+        return jsonify({"error": "Alert not found"}), 404
+
+    @app.route("/api/alerts/check", methods=["POST"])
+    def check_alerts_route():
+        """Manually trigger alert checking."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .alerts import check_alert_rules
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        new_alerts = check_alert_rules()
+        return jsonify({
+            "success": True,
+            "new_alerts": len(new_alerts),
+            "alerts": [a.to_dict() for a in new_alerts],
+        })
+
+    @app.route("/api/alerts/count")
+    def get_alert_count_route():
+        """Get count of active alerts."""
+        from flask_login import current_user
+        from .alerts import get_active_alert_count
+
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+
+        return jsonify(get_active_alert_count())
+
+    @app.route("/api/alerts/types")
+    def get_alert_types_route():
+        """Get available alert types."""
+        from .alerts import AlertType, AlertSeverity, AlertStatus
+
+        return jsonify({
+            "types": [t.value for t in AlertType],
+            "severities": [s.value for s in AlertSeverity],
+            "statuses": [s.value for s in AlertStatus],
+        })
+
     # ========== App Routes ==========
 
     @app.route("/")
