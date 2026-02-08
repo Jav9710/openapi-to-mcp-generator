@@ -21,7 +21,7 @@ import time
 import uuid
 import webbrowser
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -111,13 +111,12 @@ def create_app(
     app.config["SECRET_KEY"] = os.urandom(24)
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
 
-    # Configurar base de datos
-    db_path = Path(output_dir).resolve() / "openapi_mcp.db"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    # SQLite URI needs forward slashes on Windows
-    db_uri = f"sqlite:///{db_path.as_posix()}"
-    app.config["SQLALCHEMY_DATABASE_URI"] = db_uri
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    # Configurar base de datos (supports SQLite, PostgreSQL, MongoDB)
+    from .db_config import configure_flask_app, get_db_config
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    configure_flask_app(app, output_dir)
+    db_config = get_db_config()
+    logger.info(f"Database configured: {db_config.db_type.value}")
 
     # Inicializar DB y Auth
     from .database import init_db
@@ -2444,6 +2443,55 @@ def register_routes(app: Flask):
             "types": [t.value for t in ReportType],
             "schedules": [s.value for s in ReportSchedule],
             "formats": [f.value for f in ReportFormat],
+        })
+
+    # ========== Database Health & Info Routes ==========
+
+    @app.route("/api/health")
+    def health_check():
+        """Health check endpoint."""
+        from .db_config import check_database_health
+
+        db_health = check_database_health()
+        status_code = 200 if db_health["healthy"] else 503
+
+        return jsonify({
+            "status": "healthy" if db_health["healthy"] else "unhealthy",
+            "database": db_health,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }), status_code
+
+    @app.route("/api/database/info")
+    def database_info_route():
+        """Get database configuration and status (admin only)."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .db_config import get_db_config, check_database_health, get_env_documentation
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        config = get_db_config()
+        health = check_database_health()
+
+        return jsonify({
+            "type": config.db_type.value,
+            "is_postgresql": config.is_postgresql(),
+            "is_mongodb": config.is_mongodb(),
+            "is_sqlite": config.is_sqlite(),
+            "health": health,
+            "pool_config": config.get_pool_config() if config.is_postgresql() else None,
+            "env_documentation": get_env_documentation(),
+        })
+
+    @app.route("/api/database/types")
+    def database_types_route():
+        """Get available database types."""
+        from .db_config import DatabaseType, get_db_config
+
+        return jsonify({
+            "types": [t.value for t in DatabaseType],
+            "current": get_db_config().db_type.value,
         })
 
     # ========== App Routes ==========
