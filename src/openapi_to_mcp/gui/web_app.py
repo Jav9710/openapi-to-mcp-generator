@@ -2226,6 +2226,226 @@ def register_routes(app: Flask):
             "statuses": [s.value for s in AlertStatus],
         })
 
+    # ========== Reports Routes ==========
+
+    @app.route("/api/reports/scheduled", methods=["GET"])
+    def list_scheduled_reports_route():
+        """List scheduled reports."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import list_scheduled_reports
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        workspace_id = request.args.get("workspace_id", type=int)
+        reports = list_scheduled_reports(workspace_id)
+        return jsonify({"reports": [r.to_dict() for r in reports]})
+
+    @app.route("/api/reports/scheduled", methods=["POST"])
+    def create_scheduled_report_route():
+        """Create a new scheduled report."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import (
+            create_scheduled_report, ReportType, ReportSchedule, ReportFormat
+        )
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        try:
+            report_type = ReportType(data.get("report_type"))
+            schedule = ReportSchedule(data.get("schedule"))
+            format = ReportFormat(data.get("format", "json"))
+        except ValueError:
+            return jsonify({"error": "Invalid report_type, schedule, or format"}), 400
+
+        if not data.get("name"):
+            return jsonify({"error": "Report name is required"}), 400
+
+        scheduled = create_scheduled_report(
+            name=data.get("name"),
+            report_type=report_type,
+            schedule=schedule,
+            format=format,
+            email_recipients=data.get("email_recipients", []),
+            webhook_url=data.get("webhook_url"),
+            workspace_id=data.get("workspace_id"),
+            user_id=current_user.id,
+        )
+
+        return jsonify({"success": True, "report": scheduled.to_dict()})
+
+    @app.route("/api/reports/scheduled/<int:report_id>", methods=["DELETE"])
+    def delete_scheduled_report_route(report_id):
+        """Delete a scheduled report."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import ScheduledReport
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        scheduled = db.session.get(ScheduledReport, report_id)
+        if not scheduled:
+            return jsonify({"error": "Scheduled report not found"}), 404
+
+        db.session.delete(scheduled)
+        db.session.commit()
+        return jsonify({"success": True})
+
+    @app.route("/api/reports/generate", methods=["POST"])
+    def generate_report_route():
+        """Generate a report on demand."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import generate_report, ReportType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        data = request.json
+        try:
+            report_type = ReportType(data.get("report_type"))
+        except ValueError:
+            return jsonify({"error": "Invalid report_type"}), 400
+
+        period_days = data.get("period_days", 30)
+        workspace_id = data.get("workspace_id")
+
+        report = generate_report(
+            report_type=report_type,
+            period_days=min(period_days, 365),
+            workspace_id=workspace_id,
+            user_id=current_user.id,
+        )
+
+        return jsonify({
+            "success": True,
+            "report": report.to_dict(),
+            "data": report.data,
+        })
+
+    @app.route("/api/reports/generated", methods=["GET"])
+    def list_generated_reports_route():
+        """List generated reports."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import list_generated_reports, ReportType
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        report_type_str = request.args.get("report_type")
+        workspace_id = request.args.get("workspace_id", type=int)
+        limit = request.args.get("limit", 50, type=int)
+
+        report_type = None
+        if report_type_str:
+            try:
+                report_type = ReportType(report_type_str)
+            except ValueError:
+                pass
+
+        reports = list_generated_reports(
+            report_type=report_type,
+            workspace_id=workspace_id,
+            limit=min(limit, 200),
+        )
+
+        return jsonify({"reports": [r.to_dict() for r in reports]})
+
+    @app.route("/api/reports/generated/<int:report_id>", methods=["GET"])
+    def get_generated_report_route(report_id):
+        """Get a specific generated report with data."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import GeneratedReport
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        report = db.session.get(GeneratedReport, report_id)
+        if not report:
+            return jsonify({"error": "Report not found"}), 404
+
+        return jsonify({
+            "report": report.to_dict(),
+            "data": report.data,
+        })
+
+    @app.route("/api/reports/generated/<int:report_id>/export", methods=["GET"])
+    def export_report_route(report_id):
+        """Export a generated report in specified format."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import GeneratedReport, export_report, ReportFormat
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        format_str = request.args.get("format", "json")
+        try:
+            format = ReportFormat(format_str)
+        except ValueError:
+            return jsonify({"error": "Invalid format"}), 400
+
+        report = db.session.get(GeneratedReport, report_id)
+        if not report:
+            return jsonify({"error": "Report not found"}), 404
+
+        content = export_report(report, format)
+
+        if format == ReportFormat.JSON:
+            return app.response_class(
+                response=content,
+                status=200,
+                mimetype="application/json"
+            )
+        elif format == ReportFormat.CSV:
+            return app.response_class(
+                response=content,
+                status=200,
+                mimetype="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=report_{report_id}.csv"}
+            )
+        elif format == ReportFormat.HTML:
+            return app.response_class(
+                response=content,
+                status=200,
+                mimetype="text/html"
+            )
+
+    @app.route("/api/reports/run-scheduled", methods=["POST"])
+    def run_scheduled_reports_route():
+        """Manually run all due scheduled reports."""
+        from flask_login import current_user
+        from .database import UserRole
+        from .reports import run_scheduled_reports
+
+        if not current_user.is_authenticated or not current_user.has_role(UserRole.ADMIN):
+            return jsonify({"error": "Admin access required"}), 403
+
+        generated = run_scheduled_reports()
+        return jsonify({
+            "success": True,
+            "reports_generated": len(generated),
+            "reports": [r.to_dict() for r in generated],
+        })
+
+    @app.route("/api/reports/types")
+    def get_report_types_route():
+        """Get available report types."""
+        from .reports import ReportType, ReportSchedule, ReportFormat
+
+        return jsonify({
+            "types": [t.value for t in ReportType],
+            "schedules": [s.value for s in ReportSchedule],
+            "formats": [f.value for f in ReportFormat],
+        })
+
     # ========== App Routes ==========
 
     @app.route("/")

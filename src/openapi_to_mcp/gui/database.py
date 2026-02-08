@@ -288,4 +288,5 @@ def init_db(app):
         from .encryption import EncryptedSpec, MasterKey  # noqa: F401
         from .retention import RetentionPolicy, RetentionExecution  # noqa: F401
         from .alerts import AlertRule, Alert  # noqa: F401
+        from .reports import ScheduledReport, GeneratedReport  # noqa: F401
         db.create_all()
