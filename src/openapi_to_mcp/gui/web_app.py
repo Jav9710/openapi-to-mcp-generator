@@ -2494,6 +2494,494 @@ def register_routes(app: Flask):
             "current": get_db_config().db_type.value,
         })
 
+    # ========== AI Routes ==========
+
+    @app.route("/api/ai/health")
+    def ai_health_route():
+        """Check Ollama health status."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_ai:
+            return jsonify({"enabled": False, "message": "AI features disabled. Set ENABLE_AI=true"}), 200
+
+        from ..ai.ollama_client import get_ai_client
+
+        client = get_ai_client()
+        health = client.health_check()
+        return jsonify({
+            "enabled": True,
+            "healthy": health.healthy,
+            "models": health.models,
+            "error": health.error,
+        })
+
+    @app.route("/api/ai/models")
+    def ai_models_route():
+        """List available Ollama models."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_ai:
+            return jsonify({"error": "AI features disabled"}), 400
+
+        from ..ai.ollama_client import get_ai_client
+
+        client = get_ai_client()
+        models = client.list_models()
+        return jsonify({"models": models})
+
+    @app.route("/api/ai/analyze-spec", methods=["POST"])
+    def ai_analyze_spec_route():
+        """Analyze an OpenAPI spec using AI."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_ai:
+            return jsonify({"error": "AI features disabled"}), 400
+
+        from ..ai.ollama_client import get_ai_client
+
+        data = request.get_json()
+        if not data or "spec_content" not in data:
+            return jsonify({"error": "spec_content required"}), 400
+
+        client = get_ai_client()
+        result = client.analyze_spec(data["spec_content"])
+
+        if not result.success:
+            return jsonify({"error": result.error}), 500
+
+        import json as json_module
+        try:
+            content = json_module.loads(result.content)
+        except (json_module.JSONDecodeError, TypeError):
+            content = result.content
+
+        return jsonify({
+            "analysis": content,
+            "model": result.model,
+            "tokens_used": result.tokens_used,
+            "duration_ms": result.duration_ms,
+        })
+
+    @app.route("/api/ai/generate-docs", methods=["POST"])
+    def ai_generate_docs_route():
+        """Generate documentation for an MCP server."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_ai:
+            return jsonify({"error": "AI features disabled"}), 400
+
+        from ..ai.ollama_client import get_ai_client
+
+        data = request.get_json()
+        if not data or "spec_content" not in data:
+            return jsonify({"error": "spec_content required"}), 400
+
+        client = get_ai_client()
+        result = client.generate_documentation(
+            data["spec_content"],
+            data.get("server_name", "MCP Server"),
+        )
+
+        if not result.success:
+            return jsonify({"error": result.error}), 500
+
+        return jsonify({
+            "documentation": result.content,
+            "model": result.model,
+            "tokens_used": result.tokens_used,
+            "duration_ms": result.duration_ms,
+        })
+
+    @app.route("/api/ai/security-audit", methods=["POST"])
+    def ai_security_audit_route():
+        """Run AI security audit on an OpenAPI spec."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_ai:
+            return jsonify({"error": "AI features disabled"}), 400
+
+        from ..ai.ollama_client import get_ai_client
+
+        data = request.get_json()
+        if not data or "spec_content" not in data:
+            return jsonify({"error": "spec_content required"}), 400
+
+        client = get_ai_client()
+        result = client.security_audit(data["spec_content"])
+
+        if not result.success:
+            return jsonify({"error": result.error}), 500
+
+        import json as json_module
+        try:
+            content = json_module.loads(result.content)
+        except (json_module.JSONDecodeError, TypeError):
+            content = result.content
+
+        return jsonify({
+            "audit": content,
+            "model": result.model,
+            "tokens_used": result.tokens_used,
+            "duration_ms": result.duration_ms,
+        })
+
+    @app.route("/api/ai/validate", methods=["POST"])
+    def ai_validate_route():
+        """Validate generated MCP code using AI."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_ai:
+            return jsonify({"error": "AI features disabled"}), 400
+
+        from ..ai.ollama_client import get_ai_client
+
+        data = request.get_json()
+        if not data or "code" not in data:
+            return jsonify({"error": "code required"}), 400
+
+        client = get_ai_client()
+        result = client.validate_mcp_output(
+            data["code"],
+            data.get("spec_summary", ""),
+        )
+
+        if not result.success:
+            return jsonify({"error": result.error}), 500
+
+        import json as json_module
+        try:
+            content = json_module.loads(result.content)
+        except (json_module.JSONDecodeError, TypeError):
+            content = result.content
+
+        return jsonify({
+            "validation": content,
+            "model": result.model,
+            "tokens_used": result.tokens_used,
+            "duration_ms": result.duration_ms,
+        })
+
+    @app.route("/api/ai/optimize", methods=["POST"])
+    def ai_optimize_route():
+        """Suggest optimizations for an OpenAPI spec."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_ai:
+            return jsonify({"error": "AI features disabled"}), 400
+
+        from ..ai.ollama_client import get_ai_client
+
+        data = request.get_json()
+        if not data or "spec_content" not in data:
+            return jsonify({"error": "spec_content required"}), 400
+
+        client = get_ai_client()
+        result = client.optimize_spec(data["spec_content"])
+
+        if not result.success:
+            return jsonify({"error": result.error}), 500
+
+        import json as json_module
+        try:
+            content = json_module.loads(result.content)
+        except (json_module.JSONDecodeError, TypeError):
+            content = result.content
+
+        return jsonify({
+            "optimizations": content,
+            "model": result.model,
+            "tokens_used": result.tokens_used,
+            "duration_ms": result.duration_ms,
+        })
+
+    @app.route("/api/ai/enhance-mcp", methods=["POST"])
+    def ai_enhance_mcp_route():
+        """Suggest MCP server enhancements using AI."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_ai:
+            return jsonify({"error": "AI features disabled"}), 400
+
+        from ..ai.ollama_client import get_ai_client
+
+        data = request.get_json()
+        if not data or "tool_names" not in data:
+            return jsonify({"error": "tool_names required"}), 400
+
+        client = get_ai_client()
+        result = client.generate_mcp_enhancements(
+            data.get("spec_summary", ""),
+            data["tool_names"],
+        )
+
+        if not result.success:
+            return jsonify({"error": result.error}), 500
+
+        import json as json_module
+        try:
+            content = json_module.loads(result.content)
+        except (json_module.JSONDecodeError, TypeError):
+            content = result.content
+
+        return jsonify({
+            "enhancements": content,
+            "model": result.model,
+            "tokens_used": result.tokens_used,
+            "duration_ms": result.duration_ms,
+        })
+
+    # ========== Storage Routes ==========
+
+    @app.route("/api/storage/health")
+    def storage_health_route():
+        """Check storage health status."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_storage:
+            return jsonify({"enabled": False, "message": "Storage features disabled. Set ENABLE_STORAGE=true"}), 200
+
+        from ..storage import get_storage
+
+        storage = get_storage()
+        health = storage.health_check()
+        return jsonify({
+            "enabled": True,
+            "healthy": health.healthy,
+            "endpoint": health.endpoint,
+            "buckets": health.buckets,
+            "error": health.error,
+        })
+
+    @app.route("/api/storage/buckets")
+    def storage_buckets_route():
+        """List storage buckets."""
+        from ..storage import get_storage
+
+        storage = get_storage()
+        buckets = storage.list_buckets()
+        return jsonify({"buckets": buckets})
+
+    @app.route("/api/storage/objects/<bucket>")
+    def storage_list_objects_route(bucket):
+        """List objects in a bucket."""
+        from ..storage import get_storage
+
+        prefix = request.args.get("prefix", "")
+        storage = get_storage()
+        objects = storage.list_objects(bucket, prefix=prefix)
+        return jsonify({
+            "bucket": bucket,
+            "prefix": prefix,
+            "objects": [
+                {
+                    "key": obj.key,
+                    "size": obj.size,
+                    "content_type": obj.content_type,
+                    "last_modified": obj.last_modified.isoformat(),
+                }
+                for obj in objects
+            ],
+        })
+
+    @app.route("/api/storage/upload", methods=["POST"])
+    def storage_upload_route():
+        """Upload a file to storage."""
+        from ..storage import get_storage
+
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files["file"]
+        bucket = request.form.get("bucket", "openapi-specs")
+        key = request.form.get("key", file.filename or "unnamed")
+
+        storage = get_storage()
+        stored_key = storage.store_object(
+            bucket=bucket,
+            key=key,
+            data=file.read(),
+            content_type=file.content_type or "application/octet-stream",
+        )
+
+        return jsonify({"bucket": bucket, "key": stored_key}), 201
+
+    @app.route("/api/storage/download/<bucket>/<path:key>")
+    def storage_download_route(bucket, key):
+        """Download an object from storage."""
+        from ..storage import get_storage
+
+        storage = get_storage()
+        try:
+            data = storage.get_object(bucket, key)
+            return data, 200, {"Content-Type": "application/octet-stream"}
+        except FileNotFoundError:
+            return jsonify({"error": "Object not found"}), 404
+
+    @app.route("/api/storage/delete/<bucket>/<path:key>", methods=["DELETE"])
+    def storage_delete_route(bucket, key):
+        """Delete an object from storage."""
+        from ..storage import get_storage
+
+        storage = get_storage()
+        storage.delete_object(bucket, key)
+        return jsonify({"deleted": True, "bucket": bucket, "key": key})
+
+    @app.route("/api/storage/presigned/<bucket>/<path:key>")
+    def storage_presigned_route(bucket, key):
+        """Get presigned URL for an object."""
+        from ..storage import get_storage
+
+        hours = request.args.get("hours", 24, type=int)
+        storage = get_storage()
+        url = storage.get_presigned_url(bucket, key, expires_hours=hours)
+        return jsonify({"url": url, "expires_hours": hours})
+
+    # ========== OAuth2 Routes ==========
+
+    @app.route("/api/auth/oauth2/providers")
+    def oauth2_providers_route():
+        """List registered OAuth2 providers."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_oauth2:
+            return jsonify({"enabled": False, "message": "OAuth2 disabled. Set ENABLE_OAUTH2=true"}), 200
+
+        from ..auth.oauth2 import get_oauth2_manager
+
+        manager = get_oauth2_manager()
+        providers = manager.list_providers()
+        return jsonify({"enabled": True, "providers": providers})
+
+    @app.route("/api/auth/oauth2/authorize/<provider_name>")
+    def oauth2_authorize_route(provider_name):
+        """Get OAuth2 authorization URL."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_oauth2:
+            return jsonify({"error": "OAuth2 disabled"}), 400
+
+        from ..auth.oauth2 import get_oauth2_manager
+        import secrets
+
+        manager = get_oauth2_manager()
+        state = secrets.token_urlsafe(32)
+        try:
+            url = manager.get_authorization_url(provider_name, state=state)
+            return jsonify({"authorization_url": url, "state": state})
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 404
+
+    @app.route("/api/auth/oauth2/callback")
+    def oauth2_callback_route():
+        """Handle OAuth2 callback with authorization code."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_oauth2:
+            return jsonify({"error": "OAuth2 disabled"}), 400
+
+        from ..auth.oauth2 import get_oauth2_manager
+
+        code = request.args.get("code")
+        state = request.args.get("state")
+        provider_name = request.args.get("provider", "default")
+        user_id = request.args.get("user_id", "anonymous")
+
+        if not code:
+            return jsonify({"error": "Authorization code required"}), 400
+
+        manager = get_oauth2_manager()
+        try:
+            token = manager.exchange_code(provider_name, code, user_id)
+            return jsonify({
+                "authenticated": True,
+                "token_type": token.token_type,
+                "expires_in": token.expires_in,
+                "scope": token.scope,
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/auth/oauth2/token/<provider_name>/<user_id>")
+    def oauth2_token_status_route(provider_name, user_id):
+        """Check token status for a user/provider."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_oauth2:
+            return jsonify({"error": "OAuth2 disabled"}), 400
+
+        from ..auth.oauth2 import get_oauth2_manager
+
+        manager = get_oauth2_manager()
+        token = manager.get_token(provider_name, user_id)
+
+        if token is None:
+            return jsonify({"authenticated": False}), 200
+
+        return jsonify({
+            "authenticated": True,
+            "token_type": token.token_type,
+            "is_expired": token.is_expired,
+            "expires_at": token.expires_at,
+            "scope": token.scope,
+        })
+
+    @app.route("/api/auth/oauth2/mcp-context/<provider_name>/<user_id>")
+    def oauth2_mcp_context_route(provider_name, user_id):
+        """Get OAuth2 auth context for MCP server injection."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        if not settings.enable_oauth2:
+            return jsonify({"error": "OAuth2 disabled"}), 400
+
+        from ..auth.oauth2 import get_oauth2_manager
+
+        manager = get_oauth2_manager()
+        context = manager.generate_mcp_auth_context(provider_name, user_id)
+        return jsonify(context)
+
+    # ========== Feature Status Route ==========
+
+    @app.route("/api/features")
+    def features_status_route():
+        """Get status of all feature toggles."""
+        from ..config.settings import get_settings
+
+        settings = get_settings()
+        return jsonify({
+            "ai": {
+                "enabled": settings.enable_ai,
+                "ollama_url": settings.ollama.base_url,
+            },
+            "storage": {
+                "enabled": settings.enable_storage,
+                "endpoint": settings.minio.endpoint,
+            },
+            "oauth2": {
+                "enabled": settings.enable_oauth2,
+                "configured": settings.oauth2.enabled,
+            },
+            "agents": {
+                "enabled": settings.enable_agents,
+            },
+            "database": {
+                "type": settings.database_type,
+            },
+        })
+
     # ========== App Routes ==========
 
     @app.route("/")

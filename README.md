@@ -33,6 +33,22 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
 - **✅ Real-time Validation**: Validación en tiempo real con errores y advertencias
 - **💾 Config Import/Export**: Exporta e importa configuraciones en YAML
 
+### Enterprise Features
+- **🔒 Auditoría completa**: 45 tipos de eventos con 4 niveles de severidad
+- **🔐 Encriptación**: AES-256 con Fernet y derivación PBKDF2 para specs sensibles
+- **📊 Dashboard admin**: Métricas de uso, actividad por equipo, generaciones
+- **🚨 Alertas configurables**: 10 tipos de alertas con thresholds y notificaciones
+- **📋 Reportes automáticos**: 8 tipos de reportes en JSON/CSV/HTML con scheduling
+- **🗃️ Data Retention**: Políticas de retención para 9 tipos de datos con cleanup automático
+- **🌐 Multi-Database**: Soporte para SQLite, PostgreSQL y MongoDB
+
+### AI & Cloud Features
+- **🤖 Ollama Integration**: Análisis inteligente de specs, generación de docs, auditoría de seguridad IA
+- **📦 MinIO Storage**: Almacenamiento S3-compatible para specs, artefactos MCP y reportes
+- **🔐 OAuth2 Management**: Gestión centralizada de tokens con OIDC Discovery y refresh automático
+- **⚙️ Feature Toggles**: Activa/desactiva módulos independientemente (AI, Storage, OAuth2)
+- **🐳 Dev Infrastructure**: docker-compose con PostgreSQL, Redis, MinIO y Ollama
+
 ### Developer Experience
 - **🎯 Smart Error Messages**: Errores con contexto, sugerencias de solución y links a docs
 - **🔍 Carga desde URL**: Importa especificaciones OpenAPI desde URLs remotas
@@ -56,11 +72,17 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
 6. [Configuración](#configuración)
 7. [Procesamiento Batch](#procesamiento-batch)
 8. [Integración con Claude Desktop](#integración-con-claude-desktop)
-9. [Arquitectura](#arquitectura)
-10. [Mapeo OpenAPI → MCP](#mapeo-openapi--mcp)
-11. [Ejemplos](#ejemplos)
-12. [Consideraciones](#consideraciones)
-13. [Contribuir](#contribuir)
+9. [Enterprise Features](#enterprise-features-1)
+   - [Configuración de Entorno](#configuración-de-entorno)
+   - [Integración IA (Ollama)](#integración-ia-ollama)
+   - [Almacenamiento (MinIO)](#almacenamiento-minio)
+   - [OAuth2 Authentication](#oauth2-authentication)
+10. [API Reference](#api-reference)
+11. [Arquitectura](#arquitectura)
+12. [Mapeo OpenAPI → MCP](#mapeo-openapi--mcp)
+13. [Ejemplos](#ejemplos)
+14. [Consideraciones](#consideraciones)
+15. [Contribuir](#contribuir)
 
 ---
 
@@ -99,6 +121,21 @@ pip install -e ".[interactive]"
 
 # Instalar con GUI web (Flask + requests + gunicorn)
 pip install -e ".[gui]"
+
+# Instalar con IA (Ollama integration)
+pip install -e ".[ai]"
+
+# Instalar con almacenamiento MinIO
+pip install -e ".[storage]"
+
+# Instalar con PostgreSQL
+pip install -e ".[postgresql]"
+
+# Instalar con Redis (cache, token store, message broker)
+pip install -e ".[redis]"
+
+# Instalar con OAuth2
+pip install -e ".[oauth2]"
 
 # Instalar todas las características
 pip install -e ".[all]"
@@ -600,6 +637,230 @@ openapi-to-mcp batch ./batch-config.yaml
 
 ---
 
+## Enterprise Features
+
+### Configuración de Entorno
+
+El sistema usa Pydantic Settings para configuración centralizada. Copia `.env.example` a `.env`:
+
+```bash
+cp .env.example .env
+```
+
+**Feature Toggles** - Activa solo los módulos que necesites:
+
+```env
+ENABLE_AI=true       # Integración Ollama (análisis IA)
+ENABLE_STORAGE=true  # MinIO (almacenamiento S3)
+ENABLE_OAUTH2=true   # OAuth2 token management
+ENABLE_AGENTS=true   # Multi-agent architecture (futuro)
+```
+
+**Levantar servicios de desarrollo:**
+
+```bash
+# Inicia PostgreSQL, Redis, MinIO y Ollama
+docker-compose -f docker-compose.dev.yml up -d
+
+# Verificar estado
+curl http://localhost:5000/api/features
+```
+
+Respuesta de `/api/features`:
+```json
+{
+  "ai": {"enabled": true, "ollama_url": "http://localhost:11434"},
+  "storage": {"enabled": true, "endpoint": "localhost:9000"},
+  "oauth2": {"enabled": false, "configured": false},
+  "agents": {"enabled": false},
+  "database": {"type": "sqlite"}
+}
+```
+
+### Integración IA (Ollama)
+
+Usa modelos LLM locales via Ollama para 6 tipos de tareas:
+
+| Tarea | Modelo Default | Endpoint |
+|-------|---------------|----------|
+| Análisis de Spec | `llama3.2:3b` | `POST /api/ai/analyze-spec` |
+| Generación de Docs | `llama3.2:3b` | `POST /api/ai/generate-docs` |
+| Auditoría de Seguridad | `llama3.2:3b` | `POST /api/ai/security-audit` |
+| Validación de Código | `llama3.2:1b` | `POST /api/ai/validate` |
+| Optimización de Spec | `codellama:7b` | `POST /api/ai/optimize` |
+| Mejoras MCP | `codellama:7b` | `POST /api/ai/enhance-mcp` |
+
+**Ejemplo - Analizar una spec con IA:**
+
+```bash
+curl -X POST http://localhost:5000/api/ai/analyze-spec \
+  -H "Content-Type: application/json" \
+  -d '{"spec_content": "openapi: 3.0.3\ninfo:\n  title: My API..."}'
+```
+
+Respuesta:
+```json
+{
+  "analysis": {
+    "quality_score": 78,
+    "summary": "REST API with user management endpoints",
+    "total_endpoints": 12,
+    "issues": [
+      {"severity": "warning", "path": "/users", "message": "Missing pagination"}
+    ],
+    "mcp_recommendations": {
+      "priority_endpoints": ["/users", "/orders"],
+      "suggested_tools": ["list_users", "create_order"]
+    }
+  },
+  "model": "llama3.2:3b",
+  "tokens_used": 1250,
+  "duration_ms": 3400
+}
+```
+
+**Configuración de modelos:**
+
+```env
+OLLAMA_HOST=localhost
+OLLAMA_PORT=11434
+OLLAMA_MODEL_SPEC_ANALYSIS=llama3.2:3b
+OLLAMA_MODEL_CODE_GENERATION=codellama:7b
+OLLAMA_MODEL_DOCUMENTATION=llama3.2:3b
+OLLAMA_MODEL_VALIDATION=llama3.2:1b
+OLLAMA_RATE_LIMIT_RPM=30
+```
+
+### Almacenamiento (MinIO)
+
+Almacenamiento S3-compatible para artefactos con 4 buckets dedicados:
+
+| Bucket | Contenido | Uso |
+|--------|-----------|-----|
+| `openapi-specs` | Especificaciones OpenAPI | Versionado de specs |
+| `mcp-artifacts` | Servidores MCP generados (ZIP) | Distribución de artefactos |
+| `reports` | Reportes generados (JSON/CSV/HTML) | Auditoría y compliance |
+| `backups` | Backups de base de datos | Disaster recovery |
+
+**Ejemplo - Subir un archivo:**
+
+```bash
+curl -X POST http://localhost:5000/api/storage/upload \
+  -F "file=@mi-api.yaml" \
+  -F "bucket=openapi-specs" \
+  -F "key=project1/v1/api.yaml"
+```
+
+**Ejemplo - Listar objetos:**
+
+```bash
+curl http://localhost:5000/api/storage/objects/openapi-specs?prefix=project1/
+```
+
+**Fallback local**: Si MinIO no está disponible o `ENABLE_STORAGE=false`, el sistema usa almacenamiento en filesystem local automáticamente (`output/storage/`).
+
+**Configuración:**
+
+```env
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_SECURE=false
+```
+
+### OAuth2 Authentication
+
+Gestión centralizada de tokens OAuth2 para propagar autenticación a los servidores MCP generados.
+
+**Flujo:**
+
+```
+1. Registrar proveedor → GET /api/auth/oauth2/authorize/{provider}
+2. Usuario autoriza     → Redirect a authorization_url
+3. Callback con code    → GET /api/auth/oauth2/callback?code=...
+4. Token almacenado     → Auto-refresh antes de expiración
+5. MCP Context          → GET /api/auth/oauth2/mcp-context/{provider}/{user}
+```
+
+**Características:**
+- OIDC Discovery automático (`.well-known/openid-configuration`)
+- Token stores: Memory (default) o Redis (producción)
+- Refresh automático con buffer configurable (300s antes de expiración)
+- Contexto de auth inyectable en servidores MCP generados
+
+**Configuración:**
+
+```env
+OAUTH2_ISSUER=https://your-domain.auth0.com
+OAUTH2_CLIENT_ID=your-client-id
+OAUTH2_CLIENT_SECRET=your-client-secret
+OAUTH2_REDIRECT_URI=http://localhost:5000/api/auth/oauth2/callback
+OAUTH2_TOKEN_STORE=redis
+OAUTH2_REFRESH_BUFFER=300
+```
+
+---
+
+## API Reference
+
+### Endpoints por Módulo
+
+#### Core (siempre disponibles)
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/health` | Health check general |
+| `GET` | `/api/features` | Estado de feature toggles |
+| `GET` | `/api/database/info` | Información de base de datos |
+| `GET` | `/api/database/types` | Tipos de DB disponibles |
+
+#### AI (`ENABLE_AI=true`)
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/ai/health` | Estado de Ollama |
+| `GET` | `/api/ai/models` | Modelos disponibles |
+| `POST` | `/api/ai/analyze-spec` | Analizar spec OpenAPI |
+| `POST` | `/api/ai/generate-docs` | Generar documentación |
+| `POST` | `/api/ai/security-audit` | Auditoría de seguridad IA |
+| `POST` | `/api/ai/validate` | Validar código MCP |
+| `POST` | `/api/ai/optimize` | Optimizar spec |
+| `POST` | `/api/ai/enhance-mcp` | Sugerir mejoras MCP |
+
+#### Storage (`ENABLE_STORAGE=true`)
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/storage/health` | Estado del storage |
+| `GET` | `/api/storage/buckets` | Listar buckets |
+| `GET` | `/api/storage/objects/{bucket}` | Listar objetos |
+| `POST` | `/api/storage/upload` | Subir archivo |
+| `GET` | `/api/storage/download/{bucket}/{key}` | Descargar objeto |
+| `DELETE` | `/api/storage/delete/{bucket}/{key}` | Eliminar objeto |
+| `GET` | `/api/storage/presigned/{bucket}/{key}` | URL pre-firmada |
+
+#### OAuth2 (`ENABLE_OAUTH2=true`)
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/auth/oauth2/providers` | Proveedores registrados |
+| `GET` | `/api/auth/oauth2/authorize/{provider}` | URL de autorización |
+| `GET` | `/api/auth/oauth2/callback` | Callback OAuth2 |
+| `GET` | `/api/auth/oauth2/token/{provider}/{user}` | Estado de token |
+| `GET` | `/api/auth/oauth2/mcp-context/{provider}/{user}` | Contexto auth MCP |
+
+#### Enterprise (Dashboard)
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET/POST` | `/api/alerts/*` | Gestión de alertas |
+| `GET/POST` | `/api/reports/*` | Reportes automáticos |
+| `GET` | `/api/metrics/*` | Métricas de uso |
+| `GET/POST` | `/api/retention/*` | Políticas de retención |
+| `GET` | `/api/audit/*` | Logs de auditoría |
+
+---
+
 ## Arquitectura
 
 ### Flujo de generación
@@ -656,6 +917,21 @@ openapi-to-mcp-generator/
 │       ├── models.py              # Modelos de datos
 │       ├── cli.py                 # Interfaz de comandos
 │       ├── endpoint_selector.py   # Selector de endpoints
+│       ├── config/                # ⚙️ Configuración centralizada
+│       │   ├── __init__.py
+│       │   └── settings.py        # Pydantic Settings (Ollama, MinIO, OAuth2)
+│       ├── ai/                    # 🤖 Integración IA
+│       │   ├── __init__.py
+│       │   └── ollama_client.py   # Cliente Ollama (6 tareas IA)
+│       ├── auth/                  # 🔐 Autenticación
+│       │   ├── __init__.py
+│       │   └── oauth2.py          # OAuth2 Manager + Token Stores
+│       ├── storage/               # 📦 Almacenamiento
+│       │   ├── __init__.py
+│       │   └── adapters/
+│       │       ├── base.py        # Interfaz StorageAdapter
+│       │       ├── local_adapter.py
+│       │       └── minio_adapter.py
 │       ├── parsers/
 │       │   └── openapi_parser.py
 │       ├── transformers/
@@ -664,15 +940,27 @@ openapi-to-mcp-generator/
 │       ├── generators/
 │       │   └── server_generator.py
 │       └── gui/                   # Interfaz web
-│           ├── web_app.py
+│           ├── web_app.py         # 80+ API endpoints
+│           ├── db_config.py       # Multi-database config
+│           ├── database.py        # SQLAlchemy models
+│           ├── audit.py           # Audit logging
+│           ├── encryption.py      # AES-256 encryption
+│           ├── retention.py       # Data retention
+│           ├── metrics.py         # Usage metrics
+│           ├── alerts.py          # Configurable alerts
+│           ├── reports.py         # Automatic reports
 │           ├── templates/
 │           │   ├── index.html     # Selector de endpoints
-│           │   └── upload.html    # Página de carga
+│           │   ├── upload.html    # Página de carga
+│           │   ├── admin.html     # Dashboard admin
+│           │   └── login.html     # Autenticación
 │           └── static/
 │               ├── style.css
 │               └── app.js
+├── .env.example                   # Variables de entorno
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml             # Producción
+├── docker-compose.dev.yml         # Desarrollo (PostgreSQL, Redis, MinIO, Ollama)
 ├── docker-entrypoint.sh
 ├── examples/
 ├── tests/
@@ -764,10 +1052,11 @@ openapi-to-mcp serve --port 8080
 
 ### Limitaciones conocidas
 
-1. **OAuth2 interactivo**: Flujos que requieren navegador necesitan configuración manual
-2. **WebSockets/SSE**: Streaming no soportado actualmente
-3. **File uploads**: Multipart form-data requiere manejo especial
-4. **GraphQL**: No soportado, solo REST
+1. **WebSockets/SSE**: Streaming no soportado actualmente
+2. **File uploads**: Multipart form-data requiere manejo especial
+3. **GraphQL**: No soportado, solo REST
+4. **Ollama requerido**: Las features de IA necesitan Ollama ejecutándose localmente
+5. **SAML/LDAP**: Solo OAuth2/OIDC soportado actualmente (SAML en backlog)
 
 ### Buenas prácticas
 
@@ -775,6 +1064,9 @@ openapi-to-mcp serve --port 8080
 2. **Documenta**: Incluye `summary` y `description` en cada operación
 3. **Versiona**: Usa prefijos de versión (`users_v2_*`) cuando las APIs evolucionan
 4. **Filtra**: No expongas endpoints internos o de debug a los LLMs
+5. **Feature Toggles**: Activa solo los módulos que necesites en `.env`
+6. **Token Security**: En producción, usa Redis como token store (`OAUTH2_TOKEN_STORE=redis`)
+7. **MinIO en producción**: Configura `MINIO_SECURE=true` y credenciales seguras
 
 ---
 
@@ -966,7 +1258,7 @@ endpoint_filters:
 #### 🔒 Seguridad Avanzada
 - [x] Auditoría de acciones (45 tipos de eventos, 4 niveles de severidad)
 - [x] Encriptación de specs sensibles (AES-256 con Fernet, PBKDF2)
-- [ ] SSO/SAML integration
+- [x] OAuth2/OIDC integration (OIDC Discovery, token management, refresh automático)
 - [x] Políticas de retención de datos (9 tipos de datos, cleanup automático)
 
 #### 📈 Analytics y Monitoreo
@@ -978,8 +1270,46 @@ endpoint_filters:
 #### 🌐 Escalabilidad
 - [ ] Soporte multi-tenant
 - [ ] Balanceo de carga
-- [ ] Cache distribuido
+- [x] Cache distribuido (Redis como backend de cache y token store)
 - [x] Base de datos persistente (PostgreSQL/MongoDB via db_config)
+
+---
+
+### Fase 6: AI & Cloud Infrastructure (v4.0) ✅
+
+#### 🤖 Integración Ollama (LLM Local)
+- [x] Cliente Ollama con rate limiting y manejo de errores
+- [x] Análisis inteligente de specs OpenAPI (quality score, issues, recomendaciones MCP)
+- [x] Generación automática de documentación MCP
+- [x] Auditoría de seguridad asistida por IA (OWASP compliance)
+- [x] Validación de código MCP generado
+- [x] Optimización de specs (paginación, caching, batching)
+- [x] Sugerencias de mejoras para servidores MCP
+- [x] Modelos configurables por tipo de tarea (spec analysis, code gen, docs, validation)
+- [x] 7 endpoints de IA (`/api/ai/*`)
+
+#### 📦 Almacenamiento MinIO (S3-Compatible)
+- [x] Adaptador MinIO con abstracción de storage
+- [x] Adaptador local (filesystem) como fallback
+- [x] Buckets dedicados: specs, artifacts, reports, backups
+- [x] URLs pre-firmadas para descargas seguras
+- [x] Helpers de alto nivel: store_spec, store_mcp_artifact, store_report
+- [x] 7 endpoints de storage (`/api/storage/*`)
+
+#### 🔐 OAuth2 Token Management
+- [x] Gestor centralizado de tokens OAuth2
+- [x] OIDC Discovery automático
+- [x] Token stores: Memory y Redis
+- [x] Refresh automático de tokens
+- [x] Propagación de contexto auth a servidores MCP
+- [x] 5 endpoints OAuth2 (`/api/auth/oauth2/*`)
+
+#### ⚙️ Infraestructura
+- [x] Configuración centralizada con Pydantic Settings
+- [x] Feature toggles: `ENABLE_AI`, `ENABLE_STORAGE`, `ENABLE_OAUTH2`, `ENABLE_AGENTS`
+- [x] `.env.example` con todas las variables de entorno
+- [x] `docker-compose.dev.yml` (PostgreSQL, Redis, MinIO, Ollama)
+- [x] Endpoint de estado de features (`/api/features`)
 
 ---
 
@@ -989,14 +1319,18 @@ endpoint_filters:
 |---------|-------------|-------------|
 | Importar desde Postman | Convertir colecciones Postman a OpenAPI | Media |
 | Importar desde Insomnia | Soporte para formato Insomnia | Media |
-| AI-assisted mapping | Sugerencias inteligentes para nombres de tools | Alta |
+| ~~AI-assisted mapping~~ | ~~Sugerencias inteligentes para nombres de tools~~ | ✅ Fase 6 |
 | Playground integrado | Probar tools generados directamente | Alta |
 | CLI interactivo mejorado | TUI con rich/textual | Media |
 | Soporte GraphQL | Generar MCP desde schemas GraphQL | Alta |
 | Soporte gRPC | Generar MCP desde protobuf | Alta |
 | Mobile app | App iOS/Android para gestión | Alta |
 | VS Code extension | Extensión para editar specs | Media |
-| Rate limiting | Control de uso de API | Baja |
+| ~~Rate limiting~~ | ~~Control de uso de API~~ | ✅ Fase 6 (Ollama) |
+| Multi-Agent Architecture | Agentes Architect + Coder para planificación IA | Alta |
+| Dynamic MCP Generation | Generación dinámica con features IA personalizadas | Alta |
+| Soporte multi-tenant | Aislamiento completo por organización | Alta |
+| SAML/LDAP Integration | SSO con proveedores enterprise (SAML, Active Directory) | Media |
 
 ---
 
@@ -1030,3 +1364,5 @@ MIT License - ver [LICENSE](LICENSE) para detalles.
 ---
 
 Desarrollado para automatizar la integración de microservicios empresariales con LLMs mediante MCP.
+
+**Stack tecnológico:** Python 3.10+ | Flask | SQLAlchemy | Pydantic | Ollama | MinIO | Redis | OAuth2/OIDC
