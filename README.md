@@ -77,6 +77,13 @@ Generador automático de servidores MCP (Model Context Protocol) a partir de esp
    - [Integración IA (Ollama)](#integración-ia-ollama)
    - [Almacenamiento (MinIO)](#almacenamiento-minio)
    - [OAuth2 Authentication](#oauth2-authentication)
+   - [Auditoría de Acciones](#auditoría-de-acciones)
+   - [Encriptación de Specs](#encriptación-de-specs)
+   - [Alertas Configurables](#alertas-configurables)
+   - [Reportes Automáticos](#reportes-automáticos)
+   - [Dashboard de Métricas](#dashboard-de-métricas)
+   - [Políticas de Retención](#políticas-de-retención-de-datos)
+   - [Configuración de Base de Datos](#configuración-de-base-de-datos)
 10. [API Reference](#api-reference)
 11. [Arquitectura](#arquitectura)
 12. [Mapeo OpenAPI → MCP](#mapeo-openapi--mcp)
@@ -435,7 +442,7 @@ docker build -t openapi-to-mcp .
 docker run -p 5000:5000 openapi-to-mcp
 ```
 
-### Docker Compose
+### Docker Compose - Producción
 
 ```bash
 # Iniciar el servicio
@@ -448,7 +455,7 @@ docker-compose logs -f
 docker-compose down
 ```
 
-**docker-compose.yml:**
+**docker-compose.yml** (producción - solo la app):
 
 ```yaml
 version: '3.8'
@@ -470,6 +477,51 @@ volumes:
   mcp-output:
 ```
 
+### Docker Compose - Desarrollo (Full Stack)
+
+Incluye todos los servicios enterprise: PostgreSQL, Redis, MinIO y Ollama.
+
+```bash
+# Levantar todos los servicios de desarrollo
+docker-compose -f docker-compose.dev.yml up -d
+
+# Verificar que todo esté corriendo
+docker-compose -f docker-compose.dev.yml ps
+
+# Ver logs de un servicio específico
+docker-compose -f docker-compose.dev.yml logs -f ollama
+```
+
+**Servicios incluidos:**
+
+| Servicio | Puerto | Descripción | Console |
+|----------|--------|-------------|---------|
+| **PostgreSQL 16** | 5432 | Base de datos relacional | - |
+| **Redis 7** | 6379 | Cache, token store, message broker | - |
+| **MinIO** | 9000 / 9001 | Almacenamiento S3-compatible | `http://localhost:9001` |
+| **Ollama** | 11434 | LLM local para análisis IA | - |
+
+MinIO crea automáticamente 4 buckets al iniciar: `openapi-specs`, `mcp-artifacts`, `reports`, `backups`.
+
+**Configurar la app para usar los servicios:**
+
+```env
+# .env
+DATABASE_TYPE=postgresql
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=openapi_mcp
+DB_USER=openapi_mcp
+DB_PASSWORD=development
+
+ENABLE_AI=true
+ENABLE_STORAGE=true
+
+REDIS_URL=redis://localhost:6379/0
+MINIO_ENDPOINT=localhost:9000
+OLLAMA_HOST=localhost
+```
+
 ### Variables de entorno Docker
 
 | Variable | Descripción | Default |
@@ -478,6 +530,10 @@ volumes:
 | `OUTPUT_DIR` | Directorio de salida | /app/output |
 | `WORKERS` | Workers de gunicorn | 2 |
 | `THREADS` | Threads por worker | 4 |
+| `DATABASE_TYPE` | Tipo de BD (sqlite/postgresql/mongodb) | sqlite |
+| `ENABLE_AI` | Activar integración Ollama | false |
+| `ENABLE_STORAGE` | Activar almacenamiento MinIO | false |
+| `ENABLE_OAUTH2` | Activar gestión OAuth2 | false |
 
 ### Producción con Nginx
 
@@ -799,6 +855,296 @@ OAUTH2_TOKEN_STORE=redis
 OAUTH2_REFRESH_BUFFER=300
 ```
 
+### Auditoría de Acciones
+
+Sistema completo de audit logging con 26 tipos de eventos y 4 niveles de severidad.
+
+**Tipos de eventos auditados:**
+
+| Categoría | Eventos | Severidad |
+|-----------|---------|-----------|
+| **Autenticación** | LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT, PASSWORD_CHANGED | LOW - HIGH |
+| **Usuarios** | USER_CREATED, USER_UPDATED, USER_DELETED, ROLE_CHANGED | MEDIUM - HIGH |
+| **Specs** | SPEC_UPLOADED, SPEC_UPDATED, SPEC_DELETED, SPEC_ENCRYPTED | LOW - MEDIUM |
+| **Generación** | MCP_GENERATED, CONFIG_CHANGED | LOW |
+| **Integraciones** | WEBHOOK_CREATED, DATA_EXPORTED, API_KEY_CREATED | MEDIUM |
+| **Admin** | SETTINGS_CHANGED, WORKSPACE_CREATED, RETENTION_EXECUTED | HIGH - CRITICAL |
+
+**Ejemplo - Consultar logs de auditoría:**
+
+```bash
+# Obtener logs filtrados por severidad y rango de fechas
+curl "http://localhost:5000/api/audit/logs?severity=HIGH&days=7&limit=50"
+
+# Exportar logs en CSV
+curl "http://localhost:5000/api/audit/export?format=csv&start_date=2025-01-01"
+
+# Resumen de auditoría (estadísticas)
+curl "http://localhost:5000/api/audit/summary?workspace_id=1"
+```
+
+Respuesta de `/api/audit/summary`:
+```json
+{
+  "total_events": 1523,
+  "by_severity": {"LOW": 890, "MEDIUM": 412, "HIGH": 198, "CRITICAL": 23},
+  "top_actions": [
+    {"action": "SPEC_UPLOADED", "count": 342},
+    {"action": "MCP_GENERATED", "count": 289}
+  ],
+  "active_users": 12
+}
+```
+
+Cada registro incluye: usuario, workspace, IP, user agent, path del request y metadatos adicionales.
+
+### Encriptación de Specs
+
+Encriptación AES-256 para proteger especificaciones OpenAPI sensibles.
+
+| Aspecto | Detalle |
+|---------|---------|
+| **Algoritmo** | AES-256 via Fernet (symmetric) |
+| **Derivación de clave** | PBKDF2-SHA256, 480,000 iteraciones (OWASP) |
+| **Salt** | 16 bytes aleatorios por spec |
+| **Integridad** | Hash SHA-256 del contenido original |
+| **Rotación** | Soporte para re-encriptar con nueva clave |
+
+```bash
+# Encriptar una spec
+curl -X POST http://localhost:5000/api/encryption/encrypt \
+  -H "Content-Type: application/json" \
+  -d '{"spec_id": 1, "password": "mi-clave-segura"}'
+
+# Desencriptar
+curl -X POST http://localhost:5000/api/encryption/decrypt \
+  -H "Content-Type: application/json" \
+  -d '{"spec_id": 1, "password": "mi-clave-segura"}'
+
+# Rotar clave
+curl -X POST http://localhost:5000/api/encryption/rotate \
+  -H "Content-Type: application/json" \
+  -d '{"spec_id": 1, "old_password": "clave-vieja", "new_password": "clave-nueva"}'
+```
+
+### Alertas Configurables
+
+Sistema de alertas con 10 tipos, thresholds configurables y notificaciones multi-canal.
+
+**Tipos de alerta disponibles:**
+
+| Tipo | Descripción | Ejemplo de Threshold |
+|------|-------------|---------------------|
+| `FAILED_LOGINS` | Intentos de login fallidos | > 5 en 15 min |
+| `HIGH_ERROR_RATE` | Tasa de errores elevada | > 10 en 5 min |
+| `UNUSUAL_ACTIVITY` | Actividad inusual detectada | > 100 en 1 hora |
+| `API_RATE_LIMIT` | Límite de API alcanzado | > 1000 en 1 hora |
+| `STORAGE_USAGE` | Uso de almacenamiento alto | > 80% capacidad |
+| `INACTIVE_USERS` | Usuarios inactivos | Sin actividad 30 días |
+| `WEBHOOK_FAILURES` | Fallos en webhooks | > 3 en 1 hora |
+| `ENCRYPTION_EVENTS` | Eventos de encriptación | > 10 en 5 min |
+| `ADMIN_ACTIONS` | Acciones administrativas | Cualquier acción |
+| `NEW_USER_SPIKE` | Pico de nuevos usuarios | > 10 en 1 hora |
+
+**Ciclo de vida:** ACTIVE -> ACKNOWLEDGED -> RESOLVED (o SNOOZED temporalmente)
+
+```bash
+# Crear regla de alerta
+curl -X POST http://localhost:5000/api/alerts/rules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "alert_type": "FAILED_LOGINS",
+    "severity": "HIGH",
+    "threshold": 5,
+    "period_minutes": 15,
+    "channels": ["email", "webhook"],
+    "cooldown_minutes": 60,
+    "workspace_id": 1
+  }'
+
+# Listar alertas activas
+curl "http://localhost:5000/api/alerts?status=ACTIVE&severity=HIGH"
+
+# Reconocer una alerta
+curl -X POST http://localhost:5000/api/alerts/42/acknowledge
+
+# Resolver una alerta
+curl -X POST http://localhost:5000/api/alerts/42/resolve
+```
+
+### Reportes Automáticos
+
+8 tipos de reportes en 3 formatos con scheduling automático.
+
+**Tipos de reporte:**
+
+| Tipo | Contenido | Formatos |
+|------|-----------|----------|
+| `USAGE_SUMMARY` | Resumen de uso de la plataforma | JSON, CSV, HTML |
+| `SECURITY_AUDIT` | Auditoría de seguridad con eventos y riesgos | JSON, CSV, HTML |
+| `COMPLIANCE` | Cumplimiento de políticas y retención | JSON, CSV, HTML |
+| `USER_ACTIVITY` | Actividad por usuario con métricas | JSON, CSV, HTML |
+| `GENERATION_STATS` | Estadísticas de generación MCP | JSON, CSV, HTML |
+| `WORKSPACE_OVERVIEW` | Vista general de workspaces | JSON, CSV, HTML |
+| `API_USAGE` | Uso de API keys y endpoints | JSON, CSV, HTML |
+| `ALERT_SUMMARY` | Resumen de alertas y resoluciones | JSON, CSV, HTML |
+
+**Scheduling:** Diario, Semanal o Mensual con entrega por email o webhook.
+
+```bash
+# Generar reporte manualmente
+curl -X POST http://localhost:5000/api/reports/generate \
+  -H "Content-Type: application/json" \
+  -d '{"report_type": "SECURITY_AUDIT", "period_days": 30, "workspace_id": 1}'
+
+# Programar reporte automático
+curl -X POST http://localhost:5000/api/reports/scheduled \
+  -H "Content-Type: application/json" \
+  -d '{
+    "report_type": "USAGE_SUMMARY",
+    "format": "HTML",
+    "schedule": "WEEKLY",
+    "workspace_id": 1,
+    "delivery_email": "admin@empresa.com"
+  }'
+
+# Exportar reporte en formato específico
+curl "http://localhost:5000/api/reports/generated/15/export?format=csv"
+
+# Listar reportes generados
+curl "http://localhost:5000/api/reports/generated?workspace_id=1&limit=20"
+```
+
+### Dashboard de Métricas
+
+Dashboard de administración con métricas en tiempo real.
+
+**Categorías de métricas:**
+
+| Categoría | Datos | Endpoint |
+|-----------|-------|----------|
+| **Overview** | Usuarios totales, workspaces activos, specs cargadas | `GET /api/metrics/overview` |
+| **Usuarios** | Distribución por rol, nuevos por día, más activos | `GET /api/metrics/users` |
+| **Actividad** | Acciones por tipo, distribución horaria, trending | `GET /api/metrics/activity` |
+| **Generación** | MCPs por día, por framework, tendencias | `GET /api/metrics/generations` |
+| **Seguridad** | Logins fallidos, eventos críticos, IPs sospechosas | `GET /api/metrics/security` |
+| **Workspaces** | Distribución por tamaño, webhooks activos | `GET /api/metrics/workspaces` |
+| **Dashboard completo** | Todas las métricas agregadas | `GET /api/metrics/dashboard` |
+
+```bash
+# Dashboard completo
+curl http://localhost:5000/api/metrics/dashboard
+
+# Métricas de seguridad
+curl http://localhost:5000/api/metrics/security
+```
+
+Respuesta de `/api/metrics/security`:
+```json
+{
+  "failed_logins_24h": 3,
+  "successful_logins_24h": 47,
+  "high_severity_events": 5,
+  "critical_events": 0,
+  "suspicious_ips": ["192.168.1.100"],
+  "by_severity": {"LOW": 120, "MEDIUM": 34, "HIGH": 5, "CRITICAL": 0}
+}
+```
+
+### Políticas de Retención de Datos
+
+Sistema configurable de retención para 9 tipos de datos con cleanup automático.
+
+**Retención por defecto:**
+
+| Tipo de Dato | Retención Default | Acciones Disponibles |
+|-------------|-------------------|---------------------|
+| `AUDIT_LOGS` | 365 días | DELETE, ARCHIVE, ANONYMIZE |
+| `SPECS` | 730 días | DELETE, ARCHIVE |
+| `GENERATIONS` | 180 días | DELETE, ARCHIVE |
+| `SESSIONS` | 1 día | DELETE |
+| `ENCRYPTED_SPECS` | 365 días | DELETE |
+| `ACTIVITY_LOGS` | 180 días | DELETE, ANONYMIZE |
+| `API_KEYS` | 365 días (inactivas) | DELETE |
+| `WEBHOOKS` | 365 días (inactivos) | DELETE |
+| `NOTIFICATIONS` | 90 días | DELETE |
+
+```bash
+# Configurar política de retención
+curl -X POST http://localhost:5000/api/retention/policies \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_type": "AUDIT_LOGS",
+    "retention_days": 180,
+    "action": "ARCHIVE",
+    "workspace_id": 1
+  }'
+
+# Ejecutar cleanup (dry-run primero)
+curl -X POST http://localhost:5000/api/retention/execute \
+  -H "Content-Type: application/json" \
+  -d '{"workspace_id": 1, "dry_run": true}'
+
+# Ver estadísticas de retención
+curl "http://localhost:5000/api/retention/stats?workspace_id=1"
+
+# Historial de ejecuciones
+curl "http://localhost:5000/api/retention/history?workspace_id=1"
+```
+
+### Configuración de Base de Datos
+
+Soporte para 3 tipos de base de datos con configuración via variables de entorno.
+
+| Base de Datos | Uso Recomendado | Connection Pooling |
+|--------------|-----------------|-------------------|
+| **SQLite** | Desarrollo, pruebas, instalaciones pequeñas | No (archivo local) |
+| **PostgreSQL** | Producción, equipos, alta concurrencia | Pool de 5, max overflow 10 |
+| **MongoDB** | Almacenamiento de documentos, logs de alto volumen | Nativo |
+
+**SQLite (default):**
+```env
+DATABASE_TYPE=sqlite
+# Usa archivo local en output/instance/app.db
+```
+
+**PostgreSQL:**
+```env
+DATABASE_TYPE=postgresql
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=openapi_mcp
+DB_USER=postgres
+DB_PASSWORD=your-password
+# O usando URL directa:
+# DATABASE_URL=postgresql://user:pass@localhost:5432/openapi_mcp
+```
+
+**MongoDB:**
+```env
+DATABASE_TYPE=mongodb
+DATABASE_URL=mongodb://user:pass@localhost:27017/openapi_mcp
+```
+
+```bash
+# Verificar salud de la base de datos
+curl http://localhost:5000/api/health
+
+# Información detallada
+curl http://localhost:5000/api/database/info
+```
+
+Respuesta de `/api/database/info`:
+```json
+{
+  "type": "postgresql",
+  "url_masked": "postgresql://***@localhost:5432/openapi_mcp",
+  "healthy": true,
+  "server_version": "16.1",
+  "database_size": "24 MB"
+}
+```
+
 ---
 
 ## API Reference
@@ -849,15 +1195,72 @@ OAUTH2_REFRESH_BUFFER=300
 | `GET` | `/api/auth/oauth2/token/{provider}/{user}` | Estado de token |
 | `GET` | `/api/auth/oauth2/mcp-context/{provider}/{user}` | Contexto auth MCP |
 
-#### Enterprise (Dashboard)
+#### Auditoría
 
 | Method | Endpoint | Descripción |
 |--------|----------|-------------|
-| `GET/POST` | `/api/alerts/*` | Gestión de alertas |
-| `GET/POST` | `/api/reports/*` | Reportes automáticos |
-| `GET` | `/api/metrics/*` | Métricas de uso |
-| `GET/POST` | `/api/retention/*` | Políticas de retención |
-| `GET` | `/api/audit/*` | Logs de auditoría |
+| `GET` | `/api/audit/logs` | Consultar logs (filtros: user, severity, action, days) |
+| `GET` | `/api/audit/export` | Exportar logs en JSON o CSV |
+| `GET` | `/api/audit/summary` | Estadísticas de auditoría |
+
+#### Alertas
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/alerts` | Listar alertas (filtros: status, severity, type) |
+| `POST` | `/api/alerts/rules` | Crear regla de alerta |
+| `GET` | `/api/alerts/rules` | Listar reglas activas |
+| `DELETE` | `/api/alerts/rules/{id}` | Eliminar regla |
+| `POST` | `/api/alerts/{id}/acknowledge` | Reconocer alerta |
+| `POST` | `/api/alerts/{id}/resolve` | Resolver alerta |
+| `POST` | `/api/alerts/{id}/snooze` | Silenciar temporalmente |
+| `POST` | `/api/alerts/check` | Ejecutar verificación de reglas |
+
+#### Reportes
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `POST` | `/api/reports/generate` | Generar reporte manualmente |
+| `GET` | `/api/reports/generated` | Listar reportes generados |
+| `GET` | `/api/reports/generated/{id}` | Obtener reporte específico |
+| `GET` | `/api/reports/generated/{id}/export` | Exportar en formato (json/csv/html) |
+| `POST` | `/api/reports/scheduled` | Crear reporte programado |
+| `GET` | `/api/reports/scheduled` | Listar reportes programados |
+| `DELETE` | `/api/reports/scheduled/{id}` | Eliminar programación |
+| `POST` | `/api/reports/run-scheduled` | Ejecutar reportes pendientes |
+| `GET` | `/api/reports/types` | Tipos de reporte disponibles |
+
+#### Métricas
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/metrics/overview` | Métricas generales de la plataforma |
+| `GET` | `/api/metrics/users` | Métricas de usuarios |
+| `GET` | `/api/metrics/activity` | Métricas de actividad |
+| `GET` | `/api/metrics/generations` | Métricas de generación MCP |
+| `GET` | `/api/metrics/security` | Métricas de seguridad |
+| `GET` | `/api/metrics/workspaces` | Métricas de workspaces |
+| `GET` | `/api/metrics/dashboard` | Dashboard completo (todas las métricas) |
+
+#### Retención
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/retention/policies` | Listar políticas de retención |
+| `POST` | `/api/retention/policies` | Crear/actualizar política |
+| `DELETE` | `/api/retention/policies/{id}` | Eliminar política |
+| `POST` | `/api/retention/execute` | Ejecutar cleanup (soporta dry_run) |
+| `GET` | `/api/retention/stats` | Estadísticas de retención |
+| `GET` | `/api/retention/history` | Historial de ejecuciones |
+
+#### Encriptación
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| `POST` | `/api/encryption/encrypt` | Encriptar spec con password |
+| `POST` | `/api/encryption/decrypt` | Desencriptar spec |
+| `POST` | `/api/encryption/rotate` | Rotar clave de encriptación |
+| `POST` | `/api/encryption/verify` | Verificar password sin desencriptar |
 
 ---
 
