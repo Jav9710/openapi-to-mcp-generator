@@ -221,6 +221,72 @@ components:
         assert "page" in schema["properties"]
         assert schema["properties"]["page"]["type"] == "integer"
 
+    def test_xquik_openapi_31_search_tool_schema(self):
+        """Test Xquik OpenAPI 3.1 search operation transformation."""
+        parser = OpenAPIParser(strict_validation=False)
+        spec = parser.parse_from_string("""
+openapi: "3.1.0"
+info:
+  title: Xquik API
+  version: "1.0"
+servers:
+  - url: https://xquik.com
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+paths:
+  /api/v1/x/tweets/search:
+    get:
+      operationId: searchTweets
+      summary: Search X posts
+      security:
+        - apiKey: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: queryType
+          in: query
+          schema:
+            type: string
+            enum:
+              - Latest
+              - Top
+            default: Latest
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+      responses:
+        "200":
+          description: Search results
+""")
+        tools = ToolTransformer(service_prefix="xquik").transform(spec)
+        tool = tools[0]
+        params = {param.name: param for param in tool.parameters}
+        input_schema = tool.get_input_schema()
+
+        assert len(tools) == 1
+        assert tool.name == "xquik_search_tweets"
+        assert tool.endpoint_path == "/api/v1/x/tweets/search"
+        assert tool.operation_id == "searchTweets"
+        assert tool.security_requirements == [{"apiKey": []}]
+        assert params["q"].required is True
+        assert params["queryType"].enum == ["Latest", "Top"]
+        assert params["queryType"].default == "Latest"
+        assert params["limit"].schema["maximum"] == 200
+        assert input_schema["required"] == ["q"]
+        assert input_schema["properties"]["queryType"]["enum"] == ["Latest", "Top"]
+        assert input_schema["properties"]["limit"]["maximum"] == 200
+
     def test_unique_tool_names(self, transformer, sample_spec):
         """Test que nombres de tools son únicos."""
         tools = transformer.transform(sample_spec)
